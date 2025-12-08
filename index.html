@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set List Creator 2.0 - Audience</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- QR Code Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyB-_e7l_7LTDjU4zBCCNunGIRyf2zyTvhw",
+            authDomain: "set-list-creator-ef3d8.firebaseapp.com",
+            projectId: "set-list-creator-ef3d8",
+            storageBucket: "set-list-creator-ef3d8.firebasestorage.app",
+            messagingSenderId: "221159083280",
+            appId: "1:221159083280:web:b39791e126d8282d176995",
+            measurementId: "G-S31RSM312F"
+        };
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'setlist-v2-demo';
+
+        // Initialize Firebase
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            console.log("Firebase initialized successfully");
+        } catch (e) {
+            console.error("Firebase init failed:", e);
+        }
+
+        // Global State
+        let currentUser = null;
+        let currentSessionId = localStorage.getItem('slc_session_id') || generateSessionId();
+        localStorage.setItem('slc_session_id', currentSessionId);
+
+        // --- Auth Logic ---
+        async function initAuth() {
+            if (!auth) return;
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth Error:", error);
+            }
+        }
+
+        if (auth) {
+            initAuth();
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                if (user) {
+                    console.log("User signed in:", user.uid);
+                    document.getElementById('connection-status').innerHTML = `<span class="text-green-400">● Connected</span>`;
+                    document.querySelectorAll('button').forEach(b => b.disabled = false);
+                    
+                    // Start Listening to Data
+                    subscribeToSetList();
+                } else {
+                    document.getElementById('connection-status').innerHTML = `<span class="text-red-400">● Disconnected</span>`;
+                }
+            });
+        }
+
+        // --- Database Logic ---
+        
+        // Use a standardized path for public data: artifacts/{appId}/public/data/{collectionName}
+        function getSetListCollection() {
+            return collection(db, 'artifacts', appId, 'public', 'data', 'setlist');
+        }
+
+        // Add a new song
+        window.addSong = async (title, artist) => {
+            if(!title || !artist) return;
+            try {
+                await addDoc(getSetListCollection(), {
+                    title: title,
+                    artist: artist,
+                    votes: 0,
+                    createdAt: Date.now(),
+                    sessionId: currentSessionId // Optional: to filter by session if needed later
+                });
+                console.log("Song added");
+            } catch (e) {
+                console.error("Error adding song:", e);
+                alert("Error adding song. Check console.");
+            }
+        };
+
+        // Vote for a song
+        window.voteSong = async (songId) => {
+            const songRef = doc(db, 'artifacts', appId, 'public', 'data', 'setlist', songId);
+            try {
+                await updateDoc(songRef, {
+                    votes: increment(1)
+                });
+            } catch (e) {
+                console.error("Error voting:", e);
+            }
+        };
+
+        // Delete a song (Band only)
+        window.deleteSong = async (songId) => {
+            if(!confirm("Remove this song from the list?")) return;
+            const songRef = doc(db, 'artifacts', appId, 'public', 'data', 'setlist', songId);
+            try {
+                await deleteDoc(songRef);
+            } catch (e) {
+                console.error("Error deleting:", e);
+            }
+        }
+
+        // Listen for updates
+        function subscribeToSetList() {
+            const q = query(getSetListCollection(), orderBy('votes', 'desc')); // Order by votes
+            
+            onSnapshot(q, (snapshot) => {
+                const songs = [];
+                snapshot.forEach((doc) => {
+                    songs.push({ id: doc.id, ...doc.data() });
+                });
+                renderSetList(songs);
+            }, (error) => {
+                console.error("Error fetching songs:", error);
+                // If permission denied, likely Rules issue
+                if(error.code === 'permission-denied') {
+                    alert("Database permission denied. Did you create the database in Test Mode?");
+                }
+            });
+        }
+
+        // --- Rendering Logic ---
+        function renderSetList(songs) {
+            // Render for Band (Manager View)
+            const bandList = document.getElementById('band-song-list');
+            if (bandList) {
+                bandList.innerHTML = songs.map(song => `
+                    <div class="flex items-center justify-between bg-gray-700/50 p-3 rounded-lg border border-gray-600">
+                        <div>
+                            <div class="font-bold text-white">${song.title}</div>
+                            <div class="text-xs text-gray-400">${song.artist}</div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-mono text-pink-400">${song.votes} votes</span>
+                            <button onclick="deleteSong('${song.id}')" class="text-gray-500 hover:text-red-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // Render for Audience (Voting View)
+            const audienceList = document.getElementById('audience-song-list');
+            if (audienceList) {
+                if(songs.length === 0) {
+                     audienceList.innerHTML = `<div class="text-center text-gray-500 py-10">No songs in the list yet. Ask the band to add some!</div>`;
+                } else {
+                    audienceList.innerHTML = songs.map(song => `
+                        <div class="glass-panel p-3 rounded-xl flex items-center justify-between transition hover:border-pink-500/50">
+                            <div>
+                                <div class="font-bold text-white">${song.title}</div>
+                                <div class="text-xs text-gray-400">${song.artist}</div>
+                            </div>
+                            <button onclick="voteSong('${song.id}')" class="flex flex-col items-center gap-1 group">
+                                <div class="p-2 rounded-full bg-gray-700 group-hover:bg-pink-600 transition">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-300 group-hover:text-white"><path d="m18 15-6-6-6 6"/></svg>
+                                </div>
+                                <span class="text-xs font-bold text-gray-500 group-hover:text-pink-400">${song.votes}</span>
+                            </button>
+                        </div>
+                    `).join('');
+                }
+            }
+        }
+
+        // Expose utils
+        window.appId = appId;
+        window.currentSessionId = currentSessionId;
+        window.auth = auth;
+        window.db = db;
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(31, 41, 55, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Hide scrollbar for clean UI */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="p-4 border-b border-gray-800 bg-gray-900/90 sticky top-0 z-50 flex justify-between items-center">
+        <div class="flex items-center gap-2" onclick="goHome()">
+            <div class="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center font-bold text-white cursor-pointer">S</div>
+            <span class="font-bold text-lg tracking-tight cursor-pointer">SetList <span class="text-indigo-400">2.0</span></span>
+        </div>
+        <div class="text-xs font-mono text-gray-500 flex items-center gap-2">
+            <span id="session-display">ID: ....</span>
+            <span id="connection-status"><span class="text-yellow-500">● Connecting...</span></span>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="app-container" class="flex-grow p-4 md:p-6 max-w-4xl mx-auto w-full relative">
+        
+        <!-- View: Landing Selection -->
+        <div id="view-landing" class="flex flex-col items-center justify-center min-h-[60vh] gap-8 animate-fade-in">
+            <div class="text-center space-y-2">
+                <h1 class="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">
+                    Who are you?
+                </h1>
+                <p class="text-gray-400">Select your role to continue</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl">
+                <!-- Band Card -->
+                <button onclick="switchView('band')" class="group relative overflow-hidden rounded-2xl bg-gray-800 p-8 text-left transition hover:bg-gray-750 border border-gray-700 hover:border-indigo-500 shadow-xl hover:shadow-indigo-500/20">
+                    <div class="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-indigo-500/10 blur-xl transition group-hover:bg-indigo-500/20"></div>
+                    <div class="relative">
+                        <div class="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white">The Band</h2>
+                        <p class="mt-2 text-sm text-gray-400">Manage setlists, control the show, and see incoming requests live.</p>
+                    </div>
+                </button>
+
+                <!-- Audience Card -->
+                <button onclick="switchView('audience')" class="group relative overflow-hidden rounded-2xl bg-gray-800 p-8 text-left transition hover:bg-gray-750 border border-gray-700 hover:border-pink-500 shadow-xl hover:shadow-pink-500/20">
+                    <div class="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-pink-500/10 blur-xl transition group-hover:bg-pink-500/20"></div>
+                    <div class="relative">
+                        <div class="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-pink-500/20 text-pink-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white">The Crowd</h2>
+                        <p class="mt-2 text-sm text-gray-400">View the song list, make requests, and upvote your favorites.</p>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <!-- View: Band Dashboard -->
+        <div id="view-band" class="hidden space-y-6">
+            <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-4">
+                <div>
+                    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+                        <span class="text-indigo-400">Band</span> Dashboard
+                    </h2>
+                    <p class="text-gray-400 text-sm">Control Center</p>
+                </div>
+                <button onclick="showQRCode()" class="bg-white text-gray-900 hover:bg-gray-200 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition shadow-lg shadow-white/10">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    Show Audience QR
+                </button>
+            </header>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Left: Live Requests (Future Feature) -->
+                <div class="lg:col-span-1 glass-panel rounded-xl p-4 flex flex-col h-[600px] opacity-70">
+                    <h3 class="font-bold text-gray-400 mb-4 flex justify-between items-center">
+                        Incoming Requests
+                        <span class="text-xs bg-gray-500/20 text-gray-300 px-2 py-1 rounded-full">Coming Soon</span>
+                    </h3>
+                    <div class="flex-grow flex items-center justify-center text-center text-gray-600 text-sm italic p-4">
+                        Audience requests will appear here in the next update.
+                    </div>
+                </div>
+
+                <!-- Right: Set List Manager -->
+                <div class="lg:col-span-2 glass-panel rounded-xl p-4 flex flex-col h-[600px]">
+                    <h3 class="font-bold text-indigo-400 mb-4">Manage Set List</h3>
+                    
+                    <!-- Add Song Form -->
+                    <div class="bg-gray-800 p-4 rounded-lg mb-4 flex flex-col md:flex-row gap-2">
+                        <input type="text" id="song-title-input" placeholder="Song Title" class="flex-1 bg-gray-900 border border-gray-700 text-white rounded px-3 py-2 focus:border-indigo-500 outline-none">
+                        <input type="text" id="song-artist-input" placeholder="Artist" class="flex-1 bg-gray-900 border border-gray-700 text-white rounded px-3 py-2 focus:border-indigo-500 outline-none">
+                        <button onclick="submitSong()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded font-bold transition">Add</button>
+                    </div>
+
+                    <!-- Song List -->
+                    <div id="band-song-list" class="flex-grow overflow-y-auto space-y-2 pr-2">
+                        <!-- Songs populate here -->
+                        <div class="text-center text-gray-500 mt-10 italic text-sm">Loading songs...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- View: Audience Interface -->
+        <div id="view-audience" class="hidden space-y-6">
+            <header class="text-center pb-6">
+                <h2 class="text-2xl font-bold text-white mb-1">Make a Request!</h2>
+                <p class="text-gray-400 text-sm">Vote for what you want to hear next.</p>
+            </header>
+
+            <!-- Search/Add (Visual only for now) -->
+            <div class="sticky top-0 bg-gray-900/95 backdrop-blur py-2 z-10">
+                <div class="relative">
+                    <input type="text" placeholder="Search song or artist..." class="w-full bg-gray-800 text-white border border-gray-700 rounded-full py-3 px-5 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition shadow-lg">
+                    <button class="absolute right-2 top-2 bg-pink-600 hover:bg-pink-500 text-white p-1.5 rounded-full transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Song List -->
+            <div id="audience-song-list" class="space-y-3 pb-20">
+                <div class="text-center text-gray-500 py-10">Connecting to live set list...</div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Modals -->
+    
+    <!-- QR Code Modal -->
+    <div id="qr-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+        <div class="bg-white text-gray-900 p-8 rounded-2xl max-w-sm w-full text-center relative shadow-2xl">
+            <button onclick="document.getElementById('qr-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-900">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <h3 class="text-xl font-bold mb-2">Scan to Request</h3>
+            <p class="text-gray-500 text-sm mb-6">Audience members can scan this to open the request page.</p>
+            <div id="qrcode" class="flex justify-center mb-4"></div>
+            <p class="text-xs text-gray-400 font-mono" id="share-link-text">loading...</p>
+        </div>
+    </div>
+
+    <script>
+        // --- UI Logic ---
+
+        function generateSessionId() {
+            return 'sess_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function updateSessionDisplay() {
+            const el = document.getElementById('session-display');
+            if(el) el.textContent = `ID: ${currentSessionId.substr(5, 4).toUpperCase()}`;
+        }
+        updateSessionDisplay();
+
+        function switchView(viewName) {
+            ['view-landing', 'view-band', 'view-audience'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            const target = document.getElementById(`view-${viewName}`);
+            target.classList.remove('hidden');
+            target.classList.remove('animate-fade-in');
+            void target.offsetWidth; 
+            target.classList.add('animate-fade-in');
+        }
+
+        function goHome() {
+            if(confirm("Return to role selection?")) switchView('landing');
+        }
+
+        function submitSong() {
+            const titleInput = document.getElementById('song-title-input');
+            const artistInput = document.getElementById('song-artist-input');
+            const title = titleInput.value.trim();
+            const artist = artistInput.value.trim();
+
+            if(title && artist) {
+                window.addSong(title, artist);
+                titleInput.value = '';
+                artistInput.value = '';
+                titleInput.focus();
+            } else {
+                alert("Please enter both a title and artist.");
+            }
+        }
+
+        function showQRCode() {
+            const modal = document.getElementById('qr-modal');
+            const container = document.getElementById('qrcode');
+            const linkText = document.getElementById('share-link-text');
+            modal.classList.remove('hidden');
+            container.innerHTML = ''; 
+            const url = window.location.href.split('?')[0] + "?mode=audience&session=" + currentSessionId;
+            new QRCode(container, {
+                text: url,
+                width: 200,
+                height: 200,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+            linkText.textContent = url;
+        }
+
+        // Deep Link Logic
+        window.addEventListener('load', () => {
+            const params = new URLSearchParams(window.location.search);
+            if(params.get('mode') === 'audience') {
+                if(params.get('session')) {
+                    localStorage.setItem('slc_session_id', params.get('session'));
+                    currentSessionId = params.get('session');
+                    updateSessionDisplay();
+                }
+                switchView('audience');
+            }
+        });
+
+    </script>
+</body>
+</html>
