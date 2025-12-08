@@ -18,6 +18,8 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
         // --- Firebase Config ---
+        // Since you are "Connected", your keys are working! 
+        // Ensure they are pasted correctly here if you are copying this file to GitHub.
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyB-_e7l_7LTDjU4zBCCNunGIRyf2zyTvhw",
             authDomain: "set-list-creator-ef3d8.firebaseapp.com",
@@ -42,6 +44,34 @@
             console.error("Firebase init error:", e);
         }
 
+        // --- DISPLAY LOGIC (Moved here to fix timing error) ---
+        window.renderIncomingRequests = (requests) => {
+            const list = document.getElementById('requests-list');
+            if(!list) return; // Not in band view
+            
+            // Update badge count
+            const liveBadge = document.querySelector('#live-controls .bg-red-500');
+            if(liveBadge) liveBadge.textContent = requests.length > 0 ? `${requests.length} New` : 'Live';
+
+            if(requests.length === 0) {
+                list.innerHTML = `<div class="text-center text-gray-500 py-10 italic">No requests yet.</div>`;
+            } else {
+                list.innerHTML = requests.map(r => `
+                    <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-center border border-gray-600 animate-fade-in">
+                        <div>
+                            <div class="font-bold text-white">${r.song}</div>
+                            ${r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : ''}
+                        </div>
+                        <div class="flex flex-col items-end gap-1">
+                             <div class="text-xs bg-pink-500/20 text-pink-300 px-2 py-1 rounded">
+                                ${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        };
+
         // Auth Logic
         async function initAuth() {
             if (!auth) return;
@@ -51,7 +81,11 @@
                 } else {
                     await signInAnonymously(auth);
                 }
-            } catch (error) { console.error("Auth Error:", error); }
+            } catch (error) { 
+                console.error("Auth Error:", error); 
+                const statusEl = document.getElementById('firebase-status');
+                if(statusEl) statusEl.innerHTML = '<span class="text-red-400">⚠️ Auth Error</span>';
+            }
         }
 
         if (auth) {
@@ -61,7 +95,7 @@
                 if (user) {
                     console.log("Connected as", user.uid);
                     const statusEl = document.getElementById('firebase-status');
-                    if(statusEl) statusEl.innerHTML = '<span class="text-green-400">● Live</span>';
+                    if(statusEl) statusEl.innerHTML = '<span class="text-green-400 animate-pulse">● Live</span>';
                     
                     if(!window.location.search.includes('mode=audience')) {
                         startRequestListeners();
@@ -89,7 +123,12 @@
             onSnapshot(q, (snapshot) => {
                 const requests = [];
                 snapshot.forEach(doc => requests.push({id: doc.id, ...doc.data()}));
-                window.renderIncomingRequests(requests);
+                // This function is now guaranteed to exist!
+                if (typeof window.renderIncomingRequests === 'function') {
+                    window.renderIncomingRequests(requests);
+                }
+            }, (error) => {
+                console.error("Firestore Listen Error:", error);
             });
         }
     </script>
@@ -105,7 +144,8 @@
         .drag-handle { cursor: grab; }
         .drag-handle:active { cursor: grabbing; }
         
-        /* Removed print-specific overrides that were hiding colors */
+        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white pb-20">
@@ -191,7 +231,7 @@
                         <h3 class="font-bold text-white flex items-center gap-2">
                             Incoming Requests <span class="bg-red-500 text-white text-[10px] px-2 rounded-full animate-pulse">Live</span>
                         </h3>
-                        <button onclick="window.renderIncomingRequests([])" class="text-xs text-gray-500 hover:text-white">Clear View</button>
+                        <button onclick="if(window.renderIncomingRequests) window.renderIncomingRequests([])" class="text-xs text-gray-500 hover:text-white">Clear View</button>
                     </div>
                     <div id="requests-list" class="flex-grow overflow-y-auto space-y-2">
                         <div class="text-center text-gray-500 py-10 italic">Waiting for audience requests...</div>
@@ -687,25 +727,6 @@
             document.getElementById('request-success').classList.remove('hidden');
             setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
         }
-
-        window.renderIncomingRequests = (requests) => {
-            const list = document.getElementById('requests-list');
-            if(!list) return; // Not in band view
-            if(requests.length === 0) list.innerHTML = `<div class="text-center text-gray-500 py-10 italic">No requests yet.</div>`;
-            else {
-                list.innerHTML = requests.map(r => `
-                    <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-center border border-gray-600">
-                        <div>
-                            <div class="font-bold text-white">${r.song}</div>
-                            ${r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : ''}
-                        </div>
-                        <div class="text-xs bg-pink-500/20 text-pink-300 px-2 py-1 rounded">
-                            ${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </div>
-                    </div>
-                `).join('');
-            }
-        };
 
         // --- UTILS & INIT ---
         function timeToSeconds(str) {
