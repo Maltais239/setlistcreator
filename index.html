@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.3 (Live)</title>
+    <title>Set List Creator 2.4 (Live)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -41,6 +41,7 @@
             window.db = db; // Expose for non-module script
             window.auth = auth;
             window.appId = appId;
+            window.deleteRequest = deleteRequest; // Expose for band interface
         } catch (e) {
             console.error("Firebase init error:", e);
         }
@@ -57,19 +58,27 @@
             if(requests.length === 0) {
                 list.innerHTML = `<div class="text-center text-gray-500 py-10 italic">No requests yet.</div>`;
             } else {
-                list.innerHTML = requests.map(r => `
-                    <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-center border border-gray-600 animate-fade-in">
-                        <div>
-                            <div class="font-bold text-white">${r.song}</div>
-                            ${r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : ''}
-                        </div>
-                        <div class="flex flex-col items-end gap-1">
-                             <div class="text-xs bg-pink-500/20 text-pink-300 px-2 py-1 rounded">
-                                ${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                list.innerHTML = requests.map(r => {
+                    const originTag = r.source === 'bank' ? 
+                        `<span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full mr-2">Bank Song</span>` :
+                        `<span class="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full mr-2">New Request</span>`;
+                    
+                    return `
+                        <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-start border border-gray-600 animate-fade-in">
+                            <div class="flex flex-col">
+                                <div class="font-bold text-white">${r.song}</div>
+                                ${r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : ''}
+                                <div class="mt-2 text-xs text-gray-500 flex items-center">
+                                    ${originTag}
+                                    <div class="text-xs text-pink-300">${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                                </div>
                             </div>
+                            <button onclick="window.deleteRequest('${r.id}')" class="text-gray-600 hover:text-red-500 p-1 ml-auto transition-colors" title="Clear Request">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                            </button>
                         </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             }
         };
 
@@ -110,17 +119,29 @@
         }
 
         // Database Helpers
-        window.addAudienceRequest = async (song, artist) => {
+        window.addAudienceRequest = async (song, artist, source = 'new') => {
             if(!db) return;
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), {
                     song: song,
                     artist: artist,
                     votes: 1,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    source: source // 'bank' or 'new'
                 });
             } catch(e) { console.error(e); alert("Error sending request"); }
         };
+
+        async function deleteRequest(id) {
+            if (!db) return;
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
+                showToast("Request cleared.");
+            } catch (e) {
+                console.error("Error deleting request:", e);
+                showToast("Error clearing request.", true);
+            }
+        }
 
         function startRequestListeners() {
             if(!db) return;
@@ -129,8 +150,13 @@
             onSnapshot(q, (snapshot) => {
                 const requests = [];
                 snapshot.forEach(doc => requests.push({id: doc.id, ...doc.data()}));
-                // Sort in memory to avoid index requirement
-                requests.sort((a, b) => (b.votes || 0) - (a.votes || 0)); 
+                // Sort in memory to avoid index requirement (by votes then timestamp)
+                requests.sort((a, b) => {
+                    if ((b.votes || 0) !== (a.votes || 0)) {
+                        return (b.votes || 0) - (a.votes || 0);
+                    }
+                    return (a.timestamp || 0) - (b.timestamp || 0); // Older requests show first if votes are equal
+                }); 
                 
                 if (typeof window.renderIncomingRequests === 'function') {
                     window.renderIncomingRequests(requests);
@@ -154,6 +180,14 @@
         
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
+
+        /* Custom style for audience bank */
+        .audience-song-button {
+            transition: background-color 0.1s, transform 0.1s;
+        }
+        .audience-song-button:active {
+            transform: scale(0.98);
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white pb-20">
@@ -164,7 +198,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.3</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.4</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
                     
@@ -312,9 +346,23 @@
             </div>
             
             <div class="bg-gray-800 p-6 rounded-2xl shadow-xl border border-gray-700">
-                <input id="audience-song" type="text" placeholder="Song Name" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-3 focus:border-pink-500 outline-none">
+                
+                <h3 class="font-bold text-yellow-400 mb-3 text-left">Choose from our Song Bank:</h3>
+                <div class="relative mb-6">
+                    <input type="text" id="bank-search-audience" oninput="renderAudienceBank()" placeholder="Search songs..." class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:border-yellow-500 outline-none mb-4">
+                    
+                    <div id="audience-bank-list" class="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border border-gray-700 p-2 rounded-lg bg-gray-900">
+                        <!-- Song buttons rendered here -->
+                    </div>
+                </div>
+
+                <div class="text-gray-500 uppercase text-xs font-bold mb-4">OR</div>
+
+                <h3 class="font-bold text-white mb-3 text-left">Request a New Song:</h3>
+                <input id="audience-new-song" type="text" placeholder="Song Name (if not in bank)" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-3 focus:border-pink-500 outline-none">
                 <input id="audience-artist" type="text" placeholder="Artist (Optional)" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-4 focus:border-pink-500 outline-none">
-                <button onclick="submitRequest()" class="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg transition transform active:scale-95">
+                
+                <button onclick="submitNewRequest()" class="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg transition transform active:scale-95">
                     Send Request 🚀
                 </button>
             </div>
@@ -481,6 +529,37 @@
                     </div>
                 </div>`
             }).join('');
+        };
+
+        // Audience side rendering (New: Visual Grid)
+        window.renderAudienceBank = () => {
+            const search = document.getElementById('bank-search-audience').value.toLowerCase();
+            const list = document.getElementById('audience-bank-list');
+            list.innerHTML = '';
+            
+            const filtered = masterBank.filter(s => s.toLowerCase().includes(search));
+            
+            if (filtered.length === 0) {
+                list.innerHTML = `<div class="text-center text-gray-500 py-4 text-sm italic">No songs match your search. Try typing your request below.</div>`;
+                return;
+            }
+
+            filtered.forEach(s => {
+                const singer = getSinger(s);
+                const badgeHTML = getSingerBadgeHTML(singer);
+                
+                // Note: We use a wrapper function in the onclick to handle the request
+                list.innerHTML += `
+                    <button class="audience-song-button bg-gray-700 hover:bg-yellow-800/50 text-white p-3 rounded-lg border border-gray-600 flex items-center justify-between text-left"
+                        onclick="submitBankRequest('${s.replace(/'/g, "\\'")}')">
+                        <div class="flex items-center">
+                            ${badgeHTML}
+                            <span class="text-sm font-medium">${s}</span>
+                        </div>
+                        <span class="text-xs text-yellow-400">REQUEST</span>
+                    </button>
+                `;
+            });
         };
         
         window.addFromBank = (t, i) => {
@@ -722,18 +801,37 @@
             const url = window.location.href.split('?')[0] + "?mode=audience";
             new QRCode(container, { text: url, width: 200, height: 200 });
         }
-
-        function submitRequest() {
-            const song = document.getElementById('audience-song').value;
-            const artist = document.getElementById('audience-artist').value;
-            if(!song) return alert("Please enter a song name");
-            
-            window.addAudienceRequest(song, artist);
-            
-            document.getElementById('audience-song').value = '';
-            document.getElementById('audience-artist').value = '';
+        
+        // Audience submits a song from the visual bank
+        window.submitBankRequest = (songTitle) => {
+            window.addAudienceRequest(songTitle, '', 'bank');
             document.getElementById('request-success').classList.remove('hidden');
             setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            showToast(`Requested: ${songTitle}`);
+            // Optionally clear search field
+            document.getElementById('bank-search-audience').value = '';
+            renderAudienceBank();
+        }
+
+        // Audience submits a new, non-bank song request
+        function submitNewRequest() {
+            const newSong = document.getElementById('audience-new-song').value.trim();
+            const artist = document.getElementById('audience-artist').value.trim();
+            
+            if (!newSong) {
+                showToast("Please enter a song name for your request.", true);
+                return;
+            }
+            
+            window.addAudienceRequest(newSong, artist, 'new');
+            
+            // Clear form
+            document.getElementById('audience-new-song').value = '';
+            document.getElementById('audience-artist').value = '';
+            
+            document.getElementById('request-success').classList.remove('hidden');
+            setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            showToast("New request sent!");
         }
 
         // --- UTILS & INIT ---
@@ -747,15 +845,27 @@
             const sec = (s%60).toString().padStart(2,'0');
             return `${m}:${sec}`;
         }
-        function showToast(msg) {
+        function showToast(msg, isError = false) {
             const t = document.getElementById('toast');
             document.getElementById('toast-message').textContent = msg;
-            t.classList.remove('translate-y-20', 'opacity-0');
-            setTimeout(() => t.classList.add('translate-y-20', 'opacity-0'), 3000);
+            t.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl transform opacity-0 transition-all duration-300 z-50 ${isError ? 'bg-red-600' : 'bg-green-600'} text-white`;
+            
+            // Show toast
+            requestAnimationFrame(() => {
+                t.classList.remove('translate-y-20', 'opacity-0');
+                t.classList.add('opacity-100');
+            });
+            
+            // Hide toast
+            setTimeout(() => {
+                t.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
         }
         
         function resetToDefault() {
-            if (!confirm(`Are you sure you want to reset the current tab (${currentTab}) to its default songs? This cannot be undone.`)) return;
+            // Using a custom modal/toast instead of alert per instructions
+            const confirmAction = window.confirmAction || (msg => window.confirm(msg));
+            if (!confirmAction(`Are you sure you want to reset the current tab (${currentTab}) to its default songs? This cannot be undone.`)) return;
             
             // Deep copy the original data back
             if (currentTab === 'christmas') setCollections.christmas = JSON.parse(JSON.stringify(christmasData));
@@ -770,7 +880,9 @@
         }
 
         function clearAll() {
-            if (!confirm(`Are you sure you want to clear ALL sets in the current tab (${currentTab})? This cannot be undone.`)) return;
+            // Using a custom modal/toast instead of alert per instructions
+            const confirmAction = window.confirmAction || (msg => window.confirm(msg));
+            if (!confirmAction(`Are you sure you want to clear ALL sets in the current tab (${currentTab})? This cannot be undone.`)) return;
             
             setCollections[currentTab] = [[], [], [], []];
             if (currentTab === 'custom') localStorage.removeItem('myCustomSets');
@@ -822,10 +934,11 @@
                         render();
                         showToast("Custom sets imported successfully!");
                     } else {
-                        alert("Invalid file format. Please import a file containing an array of 4 arrays.");
+                        // Using a custom modal/toast instead of alert per instructions
+                        showToast("Invalid file format. Please import a file containing an array of 4 arrays.", true);
                     }
                 } catch (error) {
-                    alert("Error parsing JSON file: " + error.message);
+                    showToast("Error parsing JSON file: " + error.message, true);
                 }
                 // Clear the input value so the same file can be imported again
                 input.value = '';
@@ -842,6 +955,8 @@
                 document.getElementById('band-interface').classList.add('hidden');
                 document.getElementById('audience-interface').classList.remove('hidden');
                 document.title = "Make a Request - SetList Live";
+                // Initial fill of audience bank dropdown
+                window.renderAudienceBank();
             } else {
                 // Band Mode
                 renderBank();
