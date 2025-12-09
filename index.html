@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.6 (Live)</title>
+    <title>Set List Creator 2.8.1 (Live - No Time)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -306,6 +306,18 @@
         .audience-song-button:active {
             transform: scale(0.98);
         }
+        
+        /* Time Display Removal CSS */
+        #grand-total-time, .duration-input {
+            display: none !important;
+        }
+        .set-time-badge { /* Ensure the time badge slot is removed or visually collapsed */
+            display: none !important;
+        }
+        .set-header-time-container {
+             /* Remove the space that was used for the time calculation display */
+            display: none !important;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white pb-20">
@@ -316,9 +328,9 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.6</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.8.1</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
-                    <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
+                    <p class="text-gray-400 text-sm mt-1">4 Sets</p>
                     
                     <!-- Singer Legend -->
                     <div class="flex gap-2 items-center text-xs font-bold bg-gray-800 px-3 py-1 rounded-full border border-gray-700">
@@ -421,8 +433,8 @@
                     <label class="block text-xs uppercase tracking-wide text-gray-500 font-bold mb-2">Song Title & Artist</label>
                     <input type="text" id="song-title" class="w-full bg-gray-900 text-white border border-gray-600 rounded-lg py-3 px-4 focus:outline-none focus:border-indigo-500 transition" placeholder="e.g. White Christmas" required>
                 </div>
-                <div class="w-full md:w-32">
-                    <label class="block text-xs uppercase tracking-wide text-gray-500 font-bold mb-2">Time</label>
+                <div class="w-full md:w-32 set-time-input-container" style="display: none;">
+                    <label class="block text-xs uppercase tracking-wide text-gray-500 font-bold mb-2">Time (Removed)</label>
                     <input type="text" id="song-duration" class="w-full bg-gray-900 text-white border border-gray-600 rounded-lg py-3 px-4 focus:outline-none focus:border-indigo-500 transition text-center" placeholder="3:30">
                 </div>
                 <div class="w-full md:w-40">
@@ -550,13 +562,29 @@
         originalsData[2] = darrenSongs.map(createSongObject);
 
         // Emergency Data (Combined into Set 1 for UI simplicity)
-        const twostepSongs = ["Folsom Prison Blues", "Fishin' in the Dark", "Driving My Life Away", "Cadillac Ranch", "Green River", "Ring of Fire", "I Walk the Line", "Jambalaya", "Wagon Wheel", "Five Dollar Bill", "Guitar Town", "Looking Out My Back Door", "Midnight Rider", "That's Alright", "Copperhead Road", "Boot Scootin' Boogie", "Chattahoochee", "Neon Moon", "Friends in Low Places"];
+        const twostepSongs = [
+            "Folsom Prison Blues (Johnny Cash)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Driving My Life Away (Eddie Rabbitt)", 
+            "Cadillac Ranch (Bruce Springsteen)", "Green River (CCR)", "Ring of Fire", "I Walk the Line", 
+            "Jambalaya", "Wagon Wheel", "Five Dollar Bill (Corb Lund)", "Guitar Town", "Looking Out My Back Door", 
+            "Midnight Rider", "That's All Right Mama (Elvis Presley)", "Copperhead Road", "Boot Scootin' Boogie", 
+            "Chattahoochee", "Neon Moon", "Friends in Low Places", "I Shot To Sheriff (Bob Marley)" 
+        ];
         const twoStepData = [twostepSongs.map(createSongObject), [], [], []];
         
-        const fiftiesSongs = ["Johnny B. Goode", "Runaround Sue", "That's Alright", "Oh Boy", "You Can't Judge a Book", "My Babe", "Blue Christmas", "Blue Suede Shoes", "Great Balls of Fire", "Hound Dog", "La Bamba", "Twist and Shout"];
+        // FIX: 50s songs using correct master bank names
+        const fiftiesSongs = [
+            "Johnny B. Goode (Chuck Berry)", "Runaround Sue (Dion)", "That's All Right Mama (Elvis Presley)", "Oh Boy (Buddy Holly)", 
+            "You Can't Judge A Book By The Cover (Bo Diddley)", "My Babe (Willie Dixon / Little Walter)", 
+            "Blue Christmas (Elvis Presley)", "Blue Suede Shoes", "Great Balls of Fire", "Hound Dog", "La Bamba", "Twist and Shout"
+        ];
         const fiftiesData = [fiftiesSongs.map(createSongObject), [], [], []];
         
-        const popHitsSongs = ["Flowers (Miley Cyrus)", "Blank Space", "Hey Ya", "Seven Nation Army", "No Diggity", "Paper Planes", "Steal My Kisses", "Zombie", "Use Somebody", "Uptown Funk", "Mr. Brightside", "Shut Up and Dance", "Sweet Caroline"];
+        // FIX: Pop Hits list validation
+        const popHitsSongs = [
+            "Flowers (Miley Cyrus)", "Blank Space (Ryan Adams)", "Hey Ya", "Seven Nation Army", 
+            "No Diggity (Blackstreet)", "Paper Planes (M.I.A.)", "Steal My Kisses (Ben Harper)", 
+            "Zombie (The Cranberries)", "Use Somebody", "Uptown Funk", "Mr. Brightside", "Shut Up and Dance", "Sweet Caroline"
+        ];
         const popHitsData = [popHitsSongs.map(createSongObject), [], [], []];
         
         const danceSongs = ["Uptown Funk", "Hungry Like The Wolf (Duran Duran)", "Valerie", "Heart of Glass (Blondie)", "Day Tripper (The Beatles)", "September", "I Feel Good (James Brown)", "Get Down Tonight (KC & The Sunshine Band)"];
@@ -765,8 +793,8 @@
                 const link = document.createElement('a');
                 link.download = `set-${index+1}-${currentTab}.png`;
                 link.href = canvas.toDataURL();
-                link.click();
                 showToast("Set saved!");
+                link.click();
             }).catch(err => {
                 console.error(err);
                 showToast("Error generating image");
@@ -796,8 +824,8 @@
                 const link = document.createElement('a');
                 link.download = `setlist-full-${currentTab}.png`;
                 link.href = canvas.toDataURL();
-                link.click();
                 showToast("Image downloaded!");
+                link.click();
             }).catch(err => {
                 console.error(err);
                 showToast("Error generating image");
@@ -860,17 +888,15 @@
 
         // --- CORE FUNCTIONS (Render, Drag, Calculate) ---
         function timeToSeconds(str) {
-            if(!str) return 0;
-            // Ensure str is treated as a string before calling split
-            const p = String(str).split(':').reverse(); 
-            // Calculate seconds: parts[0] is seconds, parts[1] is minutes
-            return (parseInt(p[0])||0) + ((parseInt(p[1])||0)*60);
+            // FIX: Removed this function as time is no longer needed. Returns 0 for safety.
+            return 0;
         }
 
         function render() {
             sortables.forEach(s => s.destroy());
             sortables = [];
-            let grandTotalSeconds = 0;
+            
+            // Removed: let grandTotalSeconds = 0;
             const activeSets = setCollections[currentTab];
             const isEmergency = (currentTab === 'twostep' || currentTab === 'fifties' || currentTab === 'pophits' || currentTab === 'dance');
 
@@ -900,9 +926,9 @@
                 }
 
 
-                let setSeconds = 0;
-                setSongs.forEach(s => setSeconds += timeToSeconds(s.durationStr));
-                grandTotalSeconds += setSeconds;
+                // Removed: let setSeconds = 0;
+                // Removed: setSongs.forEach(s => setSeconds += timeToSeconds(s.durationStr));
+                // Removed: grandTotalSeconds += setSeconds;
 
                 // Update Header Time and inject the Image Download Button (FIXED)
                 const title = `Set ${i + 1}`;
@@ -912,15 +938,16 @@
                 const copyBtn = currentTab !== 'custom' ? `<button onclick="openCopyModal(${i})" class="text-indigo-400 hover:text-white p-1 ml-2 text-xs font-bold" title="Copy">COPY</button>` : '';
                 
                 // Start building the header content
+                // FINAL FIX FOR ICON: Using Unicode character instead of complex SVG structure injection
                 let headerContent = `
-                    <h2 class="${titleClass}">${title}</h2>
-                    <div class="flex items-center gap-3">
-                        <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm">${secondsToTime(setSeconds)}</span>
-                        <div class="flex gap-1 no-print">
-                            ${copyBtn}
-                            <button onclick="downloadSetImage(${i})" class="text-gray-400 hover:text-white p-1" title="Save Image">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-                            </button>
+                    <div class="flex items-center justify-between w-full"> 
+                        <h2 class="${titleClass}">${title}</h2>
+                        <div class="flex items-center gap-3">
+                            <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm set-time-badge" style="display: none;">0:00</span>
+                            <div class="flex gap-1 no-print">
+                                ${copyBtn}
+                                <button onclick="downloadSetImage(${i})" class="text-gray-400 hover:text-white p-1 text-xl leading-none" title="Save Image">&#x1F4F8;</button>
+                            </div>
                         </div>
                     </div>`;
 
@@ -929,9 +956,8 @@
                     const suggestionList = notInBank.map(s => s.title).join(', ');
                     headerContent += `
                         <div class="mt-3 bg-red-900/30 p-2 rounded-lg text-xs text-red-300 border border-red-700">
-                            <span class="font-bold">Other Suggestions:</span>
+                            <span class="font-bold">Other Suggestions (Not in Bank):</span>
                             <p class="italic">${suggestionList}</p>
-                            <p class="mt-1 text-gray-400">These were in the default list but not found in your Master Song Bank.</p>
                         </div>
                     `;
                 }
@@ -958,17 +984,14 @@
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-2 flex-shrink-0">
-                                    <input type="text" value="${song.durationStr === '0:00' ? '' : song.durationStr}" placeholder="0:00"
-                                        class="duration-input w-12 bg-transparent text-right text-cyan-400 font-mono text-sm focus:outline-none focus:text-white placeholder-gray-600 no-print"
-                                        onchange="updateDuration(${i}, ${idx}, this.value)">
-                                    <span class="hidden print-block text-sm font-mono text-black">${song.durationStr}</span>
+                                    <!-- Removed duration input field -->
                                     <button onclick="deleteSong(${i}, ${idx})" class="p-1 hover:text-red-400 text-gray-600 opacity-0 group-hover:opacity-100 transition no-print">×</button>
                                 </div>
                             </li>`;
                     });
                 }
             }
-            document.getElementById('grand-total-time').textContent = secondsToTime(grandTotalSeconds);
+            // Removed: document.getElementById('grand-total-time').textContent = secondsToTime(grandTotalSeconds);
             
             // Init Sortable
             for(let i=0; i<4; i++) {
@@ -983,8 +1006,8 @@
                 const items = document.getElementById(`list-set-${i}`).querySelectorAll('li[data-title]');
                 items.forEach(item => {
                     const title = item.getAttribute('data-title');
-                    const durVal = item.querySelector('.duration-input').value || "0:00";
-                    newSets[i].push({ title, durationStr: durVal });
+                    // durationStr is preserved as "0:00" internally but removed from UI
+                    newSets[i].push({ title, durationStr: "0:00" }); 
                 });
             }
             setCollections[currentTab] = newSets;
@@ -1036,9 +1059,8 @@
 
         // --- UTILS & INIT ---
         function secondsToTime(s) {
-            const m = Math.floor(s/60);
-            const sec = (s%60).toString().padStart(2,'0');
-            return `${m}:${sec}`;
+            // Function no longer needed, returning simple value for safety if called
+            return '0:00'; 
         }
         function showToast(msg, isError = false) {
             const t = document.getElementById('toast');
