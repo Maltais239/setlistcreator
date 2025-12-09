@@ -514,33 +514,53 @@
 
     <script>
         // --- DATA SECTION ---
+        // Helper function to create song objects safely
+        const createSongObject = (title, durationStr = "0:00") => ({ title, durationStr });
+        
+        // Helper function to filter a list against the Master Bank (MOVED GLOBALLY)
+        window.filterSongsAgainstMasterBank = (songList) => {
+            const masterTitles = new Set(masterBank.map(s => s.toLowerCase()));
+            const inBank = [];
+            const notInBank = [];
+
+            songList.forEach(song => {
+                if (masterTitles.has(song.title.toLowerCase())) {
+                    inBank.push(song);
+                } else {
+                    notInBank.push(song);
+                }
+            });
+            return { inBank, notInBank };
+        }
+
+
         const christmasData = [
-            [{ title: "Cleopatra (The Lumineers)", durationStr: "0:00" }, { title: "Island In The Sun (Weezer)", durationStr: "0:00" }, { title: "Ahead By A Century (Tragically Hip)", durationStr: "0:00" }, { title: "Blue Christmas (Elvis Presley)", durationStr: "0:00" }, { title: "Dont Walk Away Eileen (Sam Roberts)", durationStr: "0:00" }, { title: "A Little Something (Melissa Majeau)", durationStr: "0:00" }, { title: "Green River (CCR)", durationStr: "0:00" }, { title: "Flowers (Miley Cyrus)", durationStr: "0:00" }, { title: "Dancing In The Dark (Bruce Springsteen)", durationStr: "0:00" }, { title: "Blow At High Dough (Tragically Hip)", durationStr: "0:00" }, { title: "ALL APOLOGIES (Nirvana)", durationStr: "0:00" }, { title: "I Need Never Get Old (Nathaniel Rateliff)", durationStr: "0:00" }, { title: "Santa Bring My Baby Back To Me (Elvis)", durationStr: "0:00" }, { title: "Dreams (Fleetwood Mac)", durationStr: "0:00" }, { title: "Folsom Prison Blues (Johnny Cash)", durationStr: "0:00" }, { title: "My Babe (Willie Dixon / Little Walter)", durationStr: "0:00" }, { title: "Harvest Moon (Neil Young)", durationStr: "0:00" }, { title: "Jolene (Dolly Parton)", durationStr: "0:00" }, { title: "Colors (Black Pumas)", durationStr: "0:00" }],
-            [{ title: "SOMETHING IN THE ORANGE (Zach Bryan)", durationStr: "0:00" }, { title: "Christmas (Baby Please Come Home) (Darlene Love)", durationStr: "0:00" }, { title: "Don't Want to Wait (Darren Maltais)", durationStr: "0:00" }, { title: "Layla (Derek and the Dominos)", durationStr: "0:00" }, { title: "I'm On Fire (Bruce Springsteen)", durationStr: "0:00" }, { title: "Those Days (Darren Maltais)", durationStr: "0:00" }, { title: "Jingle Bell Rock (Bobby Helms)", durationStr: "0:00" }, { title: "You Wreck Me (Tom Petty)", durationStr: "0:00" }, { title: "Steal My Kisses (Ben Harper)", durationStr: "0:00" }, { title: "Blank Space (Ryan Adams)", durationStr: "0:00" }, { title: "Pride And Joy (Stevie Ray Vaughan)", durationStr: "0:00" }, { title: "Tonight in Black and White (Jeff McLellan)", durationStr: "0:00" }, { title: "Santa Claus Is Coming To Town (Bruce Springsteen)", durationStr: "0:00" }, { title: "REAL LOVE BABY (Father John Misty)", durationStr: "0:00" }, { title: "Five Dollar Bill (Corb Lund)", durationStr: "0:00" }, { title: "Cadillac Ranch (Bruce Springsteen)", durationStr: "0:00" }, { title: "American Girl (Tom Petty)", durationStr: "0:00" }, { title: "Get Back (The Beatles)", durationStr: "0:00" }, { title: "King Of The Road (Dean Martin/Roger Miller)", durationStr: "0:00" }, { title: "Heart of Glass (Blondie)", durationStr: "0:00" }, { title: "Johnny B. Goode (Chuck Berry)", durationStr: "0:00" }, { title: "Rhiannon (Fleetwood Mac)", durationStr: "0:00" }, { title: "No Bright Light (Darren Maltais)", durationStr: "0:00" }, { title: "Blister In The Sun (Violent Femmes)", durationStr: "0:00" }],
-            [{ title: "Cry Me A River (Justin Timberlake)", durationStr: "0:00" }, { title: "Back To Black (Amy Winehouse)", durationStr: "0:00" }, { title: "Can't Let Go (Lucinda Williams)", durationStr: "0:00" }, { title: "No Diggity (Blackstreet)", durationStr: "0:00" }, { title: "I Shot To Sheriff (Bob Marley)", durationStr: "0:00" }, { title: "Hand it over (Darren Maltais)", durationStr: "0:00" }, { title: "That's All Right Mama (Elvis Presley)", durationStr: "0:00" }, { title: "Runaround Sue (Dion)", durationStr: "0:00" }, { title: "Zombie (The Cranberries)", durationStr: "0:00" }, { title: "You Can't Judge A Book By The Cover (Bo Diddley)", durationStr: "0:00" }, { title: "Fishin' In The Dark (Nitty Gritty Dirt Band)", durationStr: "0:00" }, { title: "Paper Planes (M.I.A.)", durationStr: "0:00" }, { title: "Blitzkrieg Bop (The Ramones)", durationStr: "0:00" }, { title: "Day Tripper (The Beatles)", durationStr: "0:00" }, { title: "Driving My Life Away (Eddie Rabbitt)", durationStr: "0:00" }, { title: "Beautiful things (Darren Maltais)", durationStr: "0:00" }, { title: "Blindman River (Melissa Majeau)", durationStr: "0:00" }, { title: "Tennessee Whiskey (Chris Stapleton)", durationStr: "0:00" }, { title: "Another Road Home (Jeff McLellan)", durationStr: "0:00" }, { title: "Oh Boy (Buddy Holly)", durationStr: "0:00" }, { title: "Life Of Sin (Sturgill Simpson)", durationStr: "0:00" }, { title: "Hungry Like The Wolf (Duran Duran)", durationStr: "0:00" }],
-            [{ title: "Paranoid (Black Sabbath)", durationStr: "0:00" }, { title: "It Takes a Lot to Laugh (Bob Dylan)", durationStr: "0:00" }, { title: "Flowers In Your Hair (The Lumineers)", durationStr: "0:00" }, { title: "Faith (Wham)", durationStr: "0:00" }, { title: "Still Falling (Jeff McLellan)", durationStr: "0:00" }, { title: "Driving My Life Away (Reprise?)", durationStr: "0:00" }, { title: "Norwegian Wood (The Beatles)", durationStr: "0:00" }, { title: "Bottom Feeders (Melissa Majeau)", durationStr: "0:00" }, { title: "Creep (Radiohead)", durationStr: "0:00" }, { title: "S.O.B. (Nathaniel Rateliff)", durationStr: "0:00" }, { title: "What'd I Say (Ray Charles)", durationStr: "0:00" }, { title: "Long Ride (Melissa Majeau)", durationStr: "0:00" }, { title: "The Thrill Is Gone (BB King)", durationStr: "0:00" }, { title: "Rocket Man (Elton John)", durationStr: "0:00" }]
+            ["Cleopatra (The Lumineers)", "Island In The Sun (Weezer)", "Ahead By A Century (Tragically Hip)", "Blue Christmas (Elvis Presley)", "Dont Walk Away Eileen (Sam Roberts)", "A Little Something (Melissa Majeau)", "Green River (CCR)", "Flowers (Miley Cyrus)", "Dancing In The Dark (Bruce Springsteen)", "Blow At High Dough (Tragically Hip)", "ALL APOLOGIES (Nirvana)", "I Need Never Get Old (Nathaniel Rateliff)", "Santa Bring My Baby Back To Me (Elvis)", "Dreams (Fleetwood Mac)", "Folsom Prison Blues (Johnny Cash)", "My Babe (Willie Dixon / Little Walter)", "Harvest Moon (Neil Young)", "Jolene (Dolly Parton)", "Colors (Black Pumas)"].map(createSongObject),
+            ["SOMETHING IN THE ORANGE (Zach Bryan)", "Christmas (Baby Please Come Home) (Darlene Love)", "Don't Want to Wait (Darren Maltais)", "Layla (Derek and the Dominos)", "I'm On Fire (Bruce Springsteen)", "Those Days (Darren Maltais)", "Jingle Bell Rock (Bobby Helms)", "You Wreck Me (Tom Petty)", "Steal My Kisses (Ben Harper)", "Blank Space (Ryan Adams)", "Pride And Joy (Stevie Ray Vaughan)", "Tonight in Black and White (Jeff McLellan)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "REAL LOVE BABY (Father John Misty)", "Five Dollar Bill (Corb Lund)", "Cadillac Ranch (Bruce Springsteen)", "American Girl (Tom Petty)", "Get Back (The Beatles)", "King Of The Road (Dean Martin/Roger Miller)", "Heart of Glass (Blondie)", "Johnny B. Goode (Chuck Berry)", "Rhiannon (Fleetwood Mac)", "No Bright Light (Darren Maltais)", "Blister In The Sun (Violent Femmes)"].map(createSongObject),
+            ["Cry Me A River (Justin Timberlake)", "Back To Black (Amy Winehouse)", "Can't Let Go (Lucinda Williams)", "No Diggity (Blackstreet)", "I Shot To Sheriff (Bob Marley)", "Hand it over (Darren Maltais)", "That's All Right Mama (Elvis Presley)", "Runaround Sue (Dion)", "Zombie (The Cranberries)", "You Can't Judge A Book By The Cover (Bo Diddley)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Paper Planes (M.I.A.)", "Blitzkrieg Bop (The Ramones)", "Day Tripper (The Beatles)", "Driving My Life Away (Eddie Rabbitt)", "Beautiful things (Darren Maltais)", "Blindman River (Melissa Majeau)", "Tennessee Whiskey (Chris Stapleton)", "Another Road Home (Jeff McLellan)", "Oh Boy (Buddy Holly)", "Life Of Sin (Sturgill Simpson)", "Hungry Like The Wolf (Duran Duran)"].map(createSongObject),
+            ["Paranoid (Black Sabbath)", "It Takes a Lot to Laugh (Bob Dylan)", "Flowers In Your Hair (The Lumineers)", "Faith (Wham)", "Still Falling (Jeff McLellan)", "Driving My Life Away (Reprise?)", "Norwegian Wood (The Beatles)", "Bottom Feeders (Melissa Majeau)", "Creep (Radiohead)", "S.O.B. (Nathaniel Rateliff)", "What'd I Say (Ray Charles)", "Long Ride (Melissa Majeau)", "The Thrill Is Gone (BB King)", "Rocket Man (Elton John)"].map(createSongObject)
         ];
         
         const originalsData = [[],[],[],[]];
         const jeffSongs = ["Tonight in Black and White (Jeff McLellan)", "Still Fallin' (Jeff McLellan)", "Before Our Graves (Jeff McLellan)", "Another Road Home (Jeff McLellan)", "Havens to Hendrix (Jeff McLellan)", "Spark (Jeff McLellan)", "Blindman River (Jeff McLellan)"];
         const melissaSongs = ["A Little Something (Melissa Majeau)", "Blindman River (Melissa Majeau)", "Bottom Feeders (Melissa Majeau)", "Long Ride (Melissa Majeau)", "No Denial (Melissa Majeau)", "Sugar Daddy (Melissa Majeau)"];
         const darrenSongs = ["No Bright Light (Darren Maltais)", "Hand it Over (Darren Maltais)", "Beautiful Things (Darren Maltais)", "Don't Want to Wait (Darren Maltais)", "A Simple Thing (Darren Maltais)", "Is Your Heart a Map (Darren Maltais)", "Just Another Number (Darren Maltais)", "Lonesome Grave (Darren Maltais)", "I Wonder (Darren Maltais)", "Memento (Darren Maltais)"];
-        originalsData[0] = jeffSongs.map(t => ({ title: t, durationStr: "0:00" }));
-        originalsData[1] = melissaSongs.map(t => ({ title: t, durationStr: "0:00" }));
-        originalsData[2] = darrenSongs.map(t => ({ title: t, durationStr: "0:00" }));
+        originalsData[0] = jeffSongs.map(createSongObject);
+        originalsData[1] = melissaSongs.map(createSongObject);
+        originalsData[2] = darrenSongs.map(createSongObject);
 
         // Emergency Data (Combined into Set 1 for UI simplicity)
         const twostepSongs = ["Folsom Prison Blues", "Fishin' in the Dark", "Driving My Life Away", "Cadillac Ranch", "Green River", "Ring of Fire", "I Walk the Line", "Jambalaya", "Wagon Wheel", "Five Dollar Bill", "Guitar Town", "Looking Out My Back Door", "Midnight Rider", "That's Alright", "Copperhead Road", "Boot Scootin' Boogie", "Chattahoochee", "Neon Moon", "Friends in Low Places"];
-        const twoStepData = [twostepSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        const twoStepData = [twostepSongs.map(createSongObject), [], [], []];
         
         const fiftiesSongs = ["Johnny B. Goode", "Runaround Sue", "That's Alright", "Oh Boy", "You Can't Judge a Book", "My Babe", "Blue Christmas", "Blue Suede Shoes", "Great Balls of Fire", "Hound Dog", "La Bamba", "Twist and Shout"];
-        const fiftiesData = [fiftiesSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        const fiftiesData = [fiftiesSongs.map(createSongObject), [], [], []];
         
         const popHitsSongs = ["Flowers (Miley Cyrus)", "Blank Space", "Hey Ya", "Seven Nation Army", "No Diggity", "Paper Planes", "Steal My Kisses", "Zombie", "Use Somebody", "Uptown Funk", "Mr. Brightside", "Shut Up and Dance", "Sweet Caroline"];
-        const popHitsData = [popHitsSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        const popHitsData = [popHitsSongs.map(createSongObject), [], [], []];
         
         const danceSongs = ["Uptown Funk", "Hungry Like The Wolf (Duran Duran)", "Valerie", "Heart of Glass (Blondie)", "Day Tripper (The Beatles)", "September", "I Feel Good (James Brown)", "Get Down Tonight (KC & The Sunshine Band)"];
-        const danceData = [danceSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        const danceData = [danceSongs.map(createSongObject), [], [], []];
 
         // State
         let customData = [[], [], [], []];
@@ -567,7 +587,21 @@
         const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead By A Century", "All Apologies", "ALL APOLOGIES (Nirvana)", "American Girl (Tom Petty)", "Another Road Home (Jeff McLellan)", "Back To Black", "Beautiful things (Darren Maltais)", "Before Our Graves (Jeff McLellan)", "Big River", "Blank Space (Ryan Adams)", "Blindman River (Melissa Majeau)", "Blister In The Sun", "Blitzkrieg Bop", "Blow At High Dough", "Blue Christmas (Elvis Presley)", "Bobcaygeon", "Bottom Feeders (Melissa Majeau)", "Brown Eyed Girl", "Cadillac Ranch (Bruce Springsteen)", "Can't Let Go (Lucinda Williams)", "Christmas (Baby Please Come Home) (Darlene Love)", "Cleopatra (The Lumineers)", "Colors (Black Pumas)", "Copperhead Road", "Creep (Radiohead)", "Cry Me A River (Justin Timberlake)", "Dancing In The Dark (Bruce Springsteen)", "Day Tripper (The Beatles)", "Don't Want to Wait (Darren Maltais)", "Dont Walk Away Eileen (Sam Roberts)", "Dreams (Fleetwood Mac)", "Driving My Life Away (Eddie Rabbitt)", "Faith (Wham)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Five Dollar Bill (Corb Lund)", "Flowers (Miley Cyrus)", "Flowers In Your Hair (The Lumineers)", "Folsom Prison Blues (Johnny Cash)", "Friends in Low Places", "Get Back (The Beatles)", "Green River (CCR)", "Guitar Town", "Hand it over (Darren Maltais)", "Harvest Moon (Neil Young)", "Heart of Glass (Blondie)", "Hey Ya", "Hungry Like The Wolf (Duran Duran)", "I Need Never Get Old (Nathaniel Rateliff)", "I Shot To Sheriff (Bob Marley)", "I Walk the Line", "I Wonder (Darren Maltais)", "I'm On Fire (Bruce Springsteen)", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun (Weezer)", "It Takes a Lot to Laugh (Bob Dylan)", "Jambalaya", "Jingle Bell Rock (Bobby Helms)", "Johnny B. Goode (Chuck Berry)", "Jolene (Dolly Parton)", "Just Another Number (Darren Maltais)", "King Of The Road (Dean Martin/Roger Miller)", "Layla (Derek and the Dominos)", "Life Of Sin (Sturgill Simpson)", "Little Lion Man", "Lonesome Grave (Darren Maltais)", "Long Ride (Melissa Majeau)", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider", "Mr. Brightside", "My Babe (Willie Dixon / Little Walter)", "Neon Moon", "No Bright Light (Darren Maltais)", "No Denial (Melissa Majeau)", "No Diggity (Blackstreet)", "Norwegian Wood (The Beatles)", "Oh Boy (Buddy Holly)", "Paper Planes (M.I.A.)", "Paranoid (Black Sabbath)", "Pride And Joy (Stevie Ray Vaughan)", "REAL LOVE BABY (Father John Misty)", "Rhiannon (Fleetwood Mac)", "Ring of Fire", "Rocket Man (Elton John)", "Runaround Sue (Dion)", "Santa Bring My Baby Back To Me (Elvis)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "Seven Nation Army", "Shut Up and Dance", "S.O.B. (Nathaniel Rateliff)", "Something in the Orange", "Spark (Jeff McLellan)", "Steal My Kisses (Ben Harper)", "Still Falling (Jeff McLellan)", "Sugar Daddy (Melissa Majeau)", "Sweet Caroline", "Tennessee Whiskey (Chris Stapleton)", "That's All Right Mama (Elvis Presley)", "The Thrill Is Gone (BB King)", "Those Days (Darren Maltais)", "Tonight in Black and White (Jeff McLellan)", "Twist and Shout", "Uptown Funk", "Use Somebody", "Valerie", "Wagon Wheel", "What'd I Say (Ray Charles)", "You Can't Judge A Book By The Cover (Bo Diddley)", "You Wreck Me (Tom Petty)", "Zombie (The Cranberries)"];
         const masterBank = rawBankData.sort();
 
-        // --- GLOBAL FUNCTIONS (Defined BEFORE usage) ---
+        // Helper function to filter a list against the Master Bank
+        function filterSongsAgainstMasterBank(songList) {
+            const masterTitles = new Set(masterBank.map(s => s.toLowerCase()));
+            const inBank = [];
+            const notInBank = [];
+
+            songList.forEach(song => {
+                if (masterTitles.has(song.title.toLowerCase())) {
+                    inBank.push(song);
+                } else {
+                    notInBank.push(song);
+                }
+            });
+            return { inBank, notInBank };
+        }
         
         // --- SINGER / VOCALIST LOGIC ---
         const singerMap = {
@@ -624,7 +658,10 @@
         // ----------------------------------------------------
 
         window.renderBank = () => {
-            const search = document.getElementById('bank-search').value.toLowerCase();
+            const searchInput = document.getElementById('bank-search');
+            // FIX: Safely check for searchInput before accessing value
+            const search = searchInput ? searchInput.value.toLowerCase() : ''; 
+            
             const filtered = masterBank.filter(s => s.toLowerCase().includes(search));
             document.getElementById('bank-list').innerHTML = filtered.map(s => {
                 const singer = getSinger(s);
@@ -822,31 +859,60 @@
         }
 
         // --- CORE FUNCTIONS (Render, Drag, Calculate) ---
+        function timeToSeconds(str) {
+            if(!str) return 0;
+            // Ensure str is treated as a string before calling split
+            const p = String(str).split(':').reverse(); 
+            // Calculate seconds: parts[0] is seconds, parts[1] is minutes
+            return (parseInt(p[0])||0) + ((parseInt(p[1])||0)*60);
+        }
+
         function render() {
             sortables.forEach(s => s.destroy());
             sortables = [];
             let grandTotalSeconds = 0;
             const activeSets = setCollections[currentTab];
+            const isEmergency = (currentTab === 'twostep' || currentTab === 'fifties' || currentTab === 'pophits' || currentTab === 'dance');
 
             for(let i=0; i<4; i++) {
                 const listEl = document.getElementById(`list-set-${i}`);
-                if(!listEl) continue;
+                const container = document.getElementById(`set-container-${i}`);
+                const headerDiv = container.querySelector('.p-4');
                 
-                const setSongs = activeSets[i];
+                if(!listEl) continue;
+
+                if (isEmergency && i > 0) {
+                     // Hide Set 2, 3, 4 for emergency tabs (Point 7)
+                    container.classList.add('hidden');
+                    continue;
+                } else {
+                    container.classList.remove('hidden');
+                }
+                
+                let setSongs = activeSets[i];
+                let notInBank = [];
+
+                if (isEmergency && i === 0) {
+                    // This function is now defined in the global scope below the module script
+                    const filtered = filterSongsAgainstMasterBank(activeSets[i]); 
+                    setSongs = filtered.inBank;
+                    notInBank = filtered.notInBank;
+                }
+
+
                 let setSeconds = 0;
                 setSongs.forEach(s => setSeconds += timeToSeconds(s.durationStr));
                 grandTotalSeconds += setSeconds;
 
-                // Update Header Time and inject the Image Download Button (FIXED SECTION)
-                const container = document.getElementById(`set-container-${i}`);
-                const headerDiv = container.querySelector('.p-4');
+                // Update Header Time and inject the Image Download Button (FIXED)
                 const title = `Set ${i + 1}`;
                 const titleClass = "text-xl font-bold text-green-400";
                 
                 // Reconstruct the header safely
                 const copyBtn = currentTab !== 'custom' ? `<button onclick="openCopyModal(${i})" class="text-indigo-400 hover:text-white p-1 ml-2 text-xs font-bold" title="Copy">COPY</button>` : '';
                 
-                headerDiv.innerHTML = `
+                // Start building the header content
+                let headerContent = `
                     <h2 class="${titleClass}">${title}</h2>
                     <div class="flex items-center gap-3">
                         <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm">${secondsToTime(setSeconds)}</span>
@@ -858,18 +924,25 @@
                         </div>
                     </div>`;
 
+                // Add Other Suggestions Box for emergency lists (Point 1)
+                if (isEmergency && i === 0 && notInBank.length > 0) {
+                    const suggestionList = notInBank.map(s => s.title).join(', ');
+                    headerContent += `
+                        <div class="mt-3 bg-red-900/30 p-2 rounded-lg text-xs text-red-300 border border-red-700">
+                            <span class="font-bold">Other Suggestions:</span>
+                            <p class="italic">${suggestionList}</p>
+                            <p class="mt-1 text-gray-400">These were in the default list but not found in your Master Song Bank.</p>
+                        </div>
+                    `;
+                }
+
+                headerDiv.innerHTML = headerContent;
+
 
                 listEl.innerHTML = '';
-                // Only render the first set if it's an emergency tab (Point 7)
-                if (activeSets[i].length === 0 && (currentTab === 'twostep' || currentTab === 'fifties' || currentTab === 'pophits' || currentTab === 'dance') && i > 0) {
-                     // Do not render empty boxes for emergency tabs
-                    container.classList.add('hidden');
-                    continue;
-                } else if (setSongs.length === 0) {
+                if(setSongs.length === 0) {
                     listEl.innerHTML = `<li class="p-4 text-gray-500 text-center text-sm italic">Empty Set</li>`;
-                    container.classList.remove('hidden');
                 } else {
-                    container.classList.remove('hidden');
                     setSongs.forEach((song, idx) => {
                         const singer = getSinger(song.title);
                         const badgeHTML = getSingerBadgeHTML(singer);
@@ -962,11 +1035,6 @@
         }
 
         // --- UTILS & INIT ---
-        function timeToSeconds(str) {
-            if(!str) return 0;
-            const p = str.split(':').reverse();
-            return (parseInt(p[0])||0) + ((parseInt(p[1])||0)*60);
-        }
         function secondsToTime(s) {
             const m = Math.floor(s/60);
             const sec = (s%60).toString().padStart(2,'0');
