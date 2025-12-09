@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.1 (Live Connected)</title>
+    <title>Set List Creator 2.1.1 (Live Connected)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -157,7 +157,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.1</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.1.1</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
                     
@@ -527,37 +527,6 @@
                 link.href = canvas.toDataURL();
                 link.click();
                 showToast("Set saved!");
-            }).catch(err => {
-                console.error(err);
-                showToast("Error generating image");
-            });
-        };
-
-        window.downloadAllImage = () => {
-            window.scrollTo(0,0);
-            const element = document.getElementById('sets-capture-area');
-            showToast("Processing full image...");
-            html2canvas(element, { 
-                backgroundColor: "#111827",
-                scale: 2,
-                onclone: (clonedDoc) => {
-                    const containers = clonedDoc.querySelectorAll('.set-container');
-                    containers.forEach(container => { container.style.height = 'auto'; container.style.overflow = 'visible'; container.style.marginBottom = '40px'; });
-                    const lists = clonedDoc.querySelectorAll('ul[id^="list-set-"]');
-                    lists.forEach(list => { list.style.maxHeight = 'none'; list.style.overflow = 'visible'; });
-                    const overflowHidden = clonedDoc.querySelectorAll('.overflow-hidden');
-                    overflowHidden.forEach(el => { el.style.overflow = 'visible'; el.style.height = 'auto'; });
-                    const textItems = clonedDoc.querySelectorAll('.truncate');
-                    textItems.forEach(el => {
-                        el.style.whiteSpace = 'normal'; el.style.overflow = 'visible'; el.style.textOverflow = 'clip'; el.style.lineHeight = '1.5'; el.style.paddingBottom = '5px'; el.style.display = 'block';
-                    });
-                }
-            }).then(canvas => {
-                const link = document.createElement('a');
-                link.download = `setlist-full-${currentTab}.png`;
-                link.href = canvas.toDataURL();
-                link.click();
-                showToast("Image downloaded!");
             }).catch(err => {
                 console.error(err);
                 showToast("Error generating image");
