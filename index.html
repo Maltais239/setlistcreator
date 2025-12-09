@@ -18,7 +18,7 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
         // --- Firebase Config ---
-        // ACTION REQUIRED: Ensure these match your Firebase Console > Project Settings exactly
+        // Extracted directly from your screenshot (image_bf03f2.png)
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyB-_e7l_7LTDjU4zBCCNunGIRyf2zyTvhw",
             authDomain: "set-list-creator-ef3d8.firebaseapp.com",
@@ -84,7 +84,6 @@
                 console.error("Auth Error:", error); 
                 const statusEl = document.getElementById('firebase-status');
                 if(statusEl) {
-                    // SHOW ACTUAL ERROR CODE for debugging
                     const code = error.code || error.message || "Unknown Error";
                     statusEl.innerHTML = `<span class="text-red-400 font-bold" title="${error.message}">⚠️ ${code}</span>`;
                 }
