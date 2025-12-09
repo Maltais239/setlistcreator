@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.5 (Live)</title>
+    <title>Set List Creator 2.6 (Live)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,7 +15,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc, increment, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
         // --- Firebase Config ---
         // Updated with your credentials. 
@@ -41,9 +41,18 @@
             window.db = db; // Expose for non-module script
             window.auth = auth;
             window.appId = appId;
-            window.deleteRequest = deleteRequest; // Expose for band interface
         } catch (e) {
             console.error("Firebase init error:", e);
+        }
+        
+        // --- DEVICE TRACKING (For anti-spam) ---
+        function getDeviceID() {
+            let deviceID = localStorage.getItem('deviceID');
+            if (!deviceID) {
+                deviceID = crypto.randomUUID();
+                localStorage.setItem('deviceID', deviceID);
+            }
+            return deviceID;
         }
 
         // --- DISPLAY LOGIC ---
@@ -66,6 +75,8 @@
                     const voteBadge = r.votes > 1 ? 
                         `<span class="votes-badge bg-green-600 text-white text-xs px-2 py-1 rounded-full font-bold ml-2">${r.votes} Votes</span>` : '';
                     
+                    const artistDisplay = r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : '';
+                    
                     return `
                         <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-start border border-gray-600 animate-fade-in">
                             <div class="flex flex-col">
@@ -73,15 +84,21 @@
                                     ${r.song}
                                     ${voteBadge}
                                 </div>
-                                ${r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : ''}
+                                ${artistDisplay}
                                 <div class="mt-2 text-xs text-gray-500 flex items-center">
                                     ${originTag}
                                     <div class="text-xs text-pink-300">${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                                 </div>
                             </div>
-                            <button onclick="window.deleteRequest('${r.id}')" class="text-gray-600 hover:text-red-500 p-1 ml-auto transition-colors" title="Clear Request">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                            </button>
+                            <div class="flex flex-col gap-1 flex-shrink-0">
+                                <button onclick="window.saveRequestToSet('${r.song.replace(/'/g, "\\'")}', '${r.artist.replace(/'/g, "\\'")}', '${r.id}')" 
+                                    class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded transition-colors" title="Add to Set 4 and clear">
+                                    Save
+                                </button>
+                                <button onclick="window.deleteRequest('${r.id}')" class="text-xs bg-gray-600 hover:bg-red-500 text-white px-2 py-1 rounded transition-colors" title="Clear Request">
+                                    Clear
+                                </button>
+                            </div>
                         </div>
                     `;
                 }).join('');
@@ -128,19 +145,26 @@
         window.addAudienceRequest = async (song, artist, source = 'new') => {
             if (!db) return;
             
-            // Normalize song title for consistent lookups
             const normalizedSong = song.trim(); 
             const normalizedArtist = (artist || '').trim();
+            const deviceID = getDeviceID();
+            const storageKey = `voted_${normalizedSong}`;
+
+            // 1. Client-side Anti-Spam Check (using LocalStorage)
+            if (localStorage.getItem(storageKey) === deviceID) {
+                showToast(`You already requested "${normalizedSong}". Thank you!`, true);
+                return;
+            }
 
             try {
                 const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
                 
-                // 1. Query for an existing request matching the song title
+                // 2. Query for an existing request matching the song title
                 const q = query(requestsRef, where("song", "==", normalizedSong));
                 const snapshot = await getDocs(q);
 
                 if (!snapshot.empty) {
-                    // 2. Request found: Increment the vote count for the first match
+                    // 3. Request found: Increment the vote count for the first match
                     const existingDoc = snapshot.docs[0];
                     await updateDoc(existingDoc.ref, {
                         votes: increment(1),
@@ -148,15 +172,20 @@
                         timestamp: Date.now() 
                     });
                 } else {
-                    // 3. Request not found: Add a new request
+                    // 4. Request not found: Add a new request
                     await addDoc(requestsRef, {
                         song: normalizedSong,
                         artist: normalizedArtist,
                         votes: 1,
                         timestamp: Date.now(),
-                        source: source
+                        source: source,
+                        voterID: deviceID
                     });
                 }
+                
+                // 5. Block future votes from this device/song
+                localStorage.setItem(storageKey, deviceID);
+
                 showToast(`Request for "${normalizedSong}" sent!`);
             } catch (e) { 
                 console.error("Error adding/updating request:", e); 
@@ -172,6 +201,35 @@
             } catch (e) {
                 console.error("Error deleting request:", e);
                 showToast("Error clearing request.", true);
+            }
+        }
+        
+        async function clearAllRequests() {
+            if (!db) return;
+            
+            // Using a custom modal/toast instead of alert per instructions
+            const confirmAction = window.confirmAction || (msg => window.confirm(msg));
+            if (!confirmAction("Are you sure you want to PERMANENTLY clear ALL pending audience requests?")) return;
+
+            const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
+            const snapshot = await getDocs(query(requestsRef));
+            
+            if (snapshot.empty) {
+                showToast("No requests to clear.");
+                return;
+            }
+            
+            const batch = writeBatch(db);
+            snapshot.docs.forEach((d) => {
+                batch.delete(d.ref);
+            });
+
+            try {
+                await batch.commit();
+                showToast(`Cleared ${snapshot.size} requests.`);
+            } catch (e) {
+                console.error("Error clearing all requests:", e);
+                showToast("Error clearing all requests.", true);
             }
         }
 
@@ -199,6 +257,32 @@
                 console.error("Firestore Listen Error:", error);
             });
         }
+        
+        // Band saves a request to their setlist
+        window.saveRequestToSet = (song, artist, requestId) => {
+            // Default to Set 4 (index 3) since we don't have a selection UI yet
+            const targetSetIndex = 3; 
+            const songTitle = artist ? `${song} (${artist})` : song;
+            
+            // 1. Add to custom set list (always targeting Set 4)
+            setCollections.custom[targetSetIndex].push({title: songTitle, durationStr: "0:00"});
+            localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+            
+            // 2. Switch to Custom tab and re-render
+            switchTab('custom');
+            
+            // 3. Delete the request from the live queue
+            deleteRequest(requestId);
+            
+            showToast(`"${songTitle}" saved to Set 4 and cleared from queue!`);
+        }
+
+        // --- GLOBAL EXPORTS (FIX for ReferenceError) ---
+        window.deleteRequest = deleteRequest;
+        window.clearAllRequests = clearAllRequests;
+        window.saveRequestToSet = window.saveRequestToSet; // Keep reference to function defined above
+
+
     </script>
 
     <style>
@@ -232,7 +316,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.5</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.6</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
                     
@@ -251,6 +335,7 @@
                 <button onclick="activateTwoStep()" class="bg-red-600 hover:bg-red-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-red-500 shadow-lg shadow-red-900/20 font-bold animate-pulse hover:animate-none">🚨 Two Step</button>
                 <button onclick="activate50s()" class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-teal-500 shadow-lg shadow-teal-900/20 font-bold animate-pulse hover:animate-none">🎸 50s</button>
                 <button onclick="activatePopHits()" class="bg-pink-600 hover:bg-pink-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-pink-500 shadow-lg shadow-pink-900/20 font-bold animate-pulse hover:animate-none">🎤 Pop</button>
+                <button onclick="activateDance()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-blue-500 shadow-lg shadow-blue-900/20 font-bold animate-pulse hover:animate-none">🕺 Dance</button>
                 <div class="w-px h-8 bg-gray-700 mx-2 hidden md:block"></div>
                 <button onclick="downloadAllImage()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg transition text-sm flex items-center gap-2 border border-indigo-500 shadow-lg">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
@@ -269,6 +354,7 @@
             <button onclick="switchTab('twostep')" id="tab-twostep" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-red-400 hover:text-white hover:bg-gray-750 border border-red-900/30 whitespace-nowrap">🚨 Two Step</button>
             <button onclick="switchTab('fifties')" id="tab-fifties" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-teal-400 hover:text-white hover:bg-gray-750 border border-teal-900/30 whitespace-nowrap">🎸 50s</button>
             <button onclick="switchTab('pophits')" id="tab-pophits" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-pink-400 hover:text-white hover:bg-gray-750 border border-pink-900/30 whitespace-nowrap">🎤 Pop Hits</button>
+            <button onclick="switchTab('dance')" id="tab-dance" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-blue-400 hover:text-white hover:bg-gray-750 border border-blue-900/30 whitespace-nowrap">🕺 Dance Hits</button>
             
             <!-- NEW LIVE TAB -->
             <button onclick="switchTab('live')" id="tab-live" class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-yellow-400 hover:text-white hover:bg-gray-750 border border-yellow-900/30 whitespace-nowrap flex items-center justify-center gap-2">
@@ -307,7 +393,7 @@
                         <h3 class="font-bold text-white flex items-center gap-2">
                             Incoming Requests <span class="bg-red-500 text-white text-[10px] px-2 rounded-full animate-pulse">Live</span>
                         </h3>
-                        <button onclick="if(window.renderIncomingRequests) window.renderIncomingRequests([])" class="text-xs text-gray-500 hover:text-white">Clear View</button>
+                        <button onclick="window.clearAllRequests()" class="text-xs text-gray-500 hover:text-red-400 transition-colors font-bold">Clear ALL Requests (Permanent)</button>
                     </div>
                     <div id="requests-list" class="flex-grow overflow-y-auto space-y-2">
                         <div class="text-center text-gray-500 py-10 italic">Waiting for audience requests...</div>
@@ -316,7 +402,18 @@
             </div>
         </div>
 
-        <!-- Song Input -->
+        <!-- Sets Grid -->
+        <div id="sets-capture-area" class="p-2 -m-2 bg-gray-900">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
+                <!-- Sets 1-4 generated by JS -->
+                <div id="set-container-0" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 1</h2></div><ul id="list-set-0" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
+                <div id="set-container-1" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 2</h2></div><ul id="list-set-1" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
+                <div id="set-container-2" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 3</h2></div><ul id="list-set-2" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
+                <div id="set-container-3" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 4</h2></div><ul id="list-set-3" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
+            </div>
+        </div>
+        
+        <!-- Song Input (Moved Below Sets) -->
         <div id="input-section" class="no-print bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 mb-8">
             <h3 class="text-sm uppercase tracking-wide text-gray-400 font-bold mb-4 border-b border-gray-700 pb-2">Add New / Custom Song</h3>
             <form id="add-song-form" class="flex flex-col md:flex-row gap-4 items-end">
@@ -339,17 +436,6 @@
                 </div>
                 <button type="submit" class="w-full md:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-lg transition shadow-lg">Add</button>
             </form>
-        </div>
-
-        <!-- Sets Grid -->
-        <div id="sets-capture-area" class="p-2 -m-2 bg-gray-900">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-                <!-- Sets 1-4 generated by JS -->
-                <div id="set-container-0" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 1</h2></div><ul id="list-set-0" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
-                <div id="set-container-1" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 2</h2></div><ul id="list-set-1" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
-                <div id="set-container-2" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 3</h2></div><ul id="list-set-2" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
-                <div id="set-container-3" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 4</h2></div><ul id="list-set-3" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
-            </div>
         </div>
 
         <!-- Master Song Bank -->
@@ -383,7 +469,7 @@
                 
                 <h3 class="font-bold text-yellow-400 mb-3 text-left">Choose from our Song Bank:</h3>
                 <div class="relative mb-6">
-                    <input type="text" id="bank-search-audience" oninput="renderAudienceBank()" placeholder="Search songs..." class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:border-yellow-500 outline-none mb-4">
+                    <!-- Removed search bar per request 6 -->
                     
                     <div id="audience-bank-list" class="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border border-gray-700 p-2 rounded-lg bg-gray-900">
                         <!-- Song buttons rendered here -->
@@ -431,7 +517,7 @@
         const christmasData = [
             [{ title: "Cleopatra (The Lumineers)", durationStr: "0:00" }, { title: "Island In The Sun (Weezer)", durationStr: "0:00" }, { title: "Ahead By A Century (Tragically Hip)", durationStr: "0:00" }, { title: "Blue Christmas (Elvis Presley)", durationStr: "0:00" }, { title: "Dont Walk Away Eileen (Sam Roberts)", durationStr: "0:00" }, { title: "A Little Something (Melissa Majeau)", durationStr: "0:00" }, { title: "Green River (CCR)", durationStr: "0:00" }, { title: "Flowers (Miley Cyrus)", durationStr: "0:00" }, { title: "Dancing In The Dark (Bruce Springsteen)", durationStr: "0:00" }, { title: "Blow At High Dough (Tragically Hip)", durationStr: "0:00" }, { title: "ALL APOLOGIES (Nirvana)", durationStr: "0:00" }, { title: "I Need Never Get Old (Nathaniel Rateliff)", durationStr: "0:00" }, { title: "Santa Bring My Baby Back To Me (Elvis)", durationStr: "0:00" }, { title: "Dreams (Fleetwood Mac)", durationStr: "0:00" }, { title: "Folsom Prison Blues (Johnny Cash)", durationStr: "0:00" }, { title: "My Babe (Willie Dixon / Little Walter)", durationStr: "0:00" }, { title: "Harvest Moon (Neil Young)", durationStr: "0:00" }, { title: "Jolene (Dolly Parton)", durationStr: "0:00" }, { title: "Colors (Black Pumas)", durationStr: "0:00" }],
             [{ title: "SOMETHING IN THE ORANGE (Zach Bryan)", durationStr: "0:00" }, { title: "Christmas (Baby Please Come Home) (Darlene Love)", durationStr: "0:00" }, { title: "Don't Want to Wait (Darren Maltais)", durationStr: "0:00" }, { title: "Layla (Derek and the Dominos)", durationStr: "0:00" }, { title: "I'm On Fire (Bruce Springsteen)", durationStr: "0:00" }, { title: "Those Days (Darren Maltais)", durationStr: "0:00" }, { title: "Jingle Bell Rock (Bobby Helms)", durationStr: "0:00" }, { title: "You Wreck Me (Tom Petty)", durationStr: "0:00" }, { title: "Steal My Kisses (Ben Harper)", durationStr: "0:00" }, { title: "Blank Space (Ryan Adams)", durationStr: "0:00" }, { title: "Pride And Joy (Stevie Ray Vaughan)", durationStr: "0:00" }, { title: "Tonight in Black and White (Jeff McLellan)", durationStr: "0:00" }, { title: "Santa Claus Is Coming To Town (Bruce Springsteen)", durationStr: "0:00" }, { title: "REAL LOVE BABY (Father John Misty)", durationStr: "0:00" }, { title: "Five Dollar Bill (Corb Lund)", durationStr: "0:00" }, { title: "Cadillac Ranch (Bruce Springsteen)", durationStr: "0:00" }, { title: "American Girl (Tom Petty)", durationStr: "0:00" }, { title: "Get Back (The Beatles)", durationStr: "0:00" }, { title: "King Of The Road (Dean Martin/Roger Miller)", durationStr: "0:00" }, { title: "Heart of Glass (Blondie)", durationStr: "0:00" }, { title: "Johnny B. Goode (Chuck Berry)", durationStr: "0:00" }, { title: "Rhiannon (Fleetwood Mac)", durationStr: "0:00" }, { title: "No Bright Light (Darren Maltais)", durationStr: "0:00" }, { title: "Blister In The Sun (Violent Femmes)", durationStr: "0:00" }],
-            [{ title: "Cry Me A River (Justin Timberlake)", durationStr: "0:00" }, { title: "Back To Black (Amy Winehouse)", durationStr: "0:00" }, { title: "Can't Let Go (Lucinda Williams)", durationStr: "0:00" }, { title: "No Diggity (Blackstreet)", durationStr: "0:00" }, { title: "I Shot The Sheriff (Bob Marley)", durationStr: "0:00" }, { title: "Hand it over (Darren Maltais)", durationStr: "0:00" }, { title: "That's All Right Mama (Elvis Presley)", durationStr: "0:00" }, { title: "Runaround Sue (Dion)", durationStr: "0:00" }, { title: "Zombie (The Cranberries)", durationStr: "0:00" }, { title: "You Can't Judge A Book By The Cover (Bo Diddley)", durationStr: "0:00" }, { title: "Fishin' In The Dark (Nitty Gritty Dirt Band)", durationStr: "0:00" }, { title: "Paper Planes (M.I.A.)", durationStr: "0:00" }, { title: "Blitzkrieg Bop (The Ramones)", durationStr: "0:00" }, { title: "Day Tripper (The Beatles)", durationStr: "0:00" }, { title: "Driving My Life Away (Eddie Rabbitt)", durationStr: "0:00" }, { title: "Beautiful things (Darren Maltais)", durationStr: "0:00" }, { title: "Blindman River (Melissa Majeau)", durationStr: "0:00" }, { title: "Tennessee Whiskey (Chris Stapleton)", durationStr: "0:00" }, { title: "Another Road Home (Jeff McLellan)", durationStr: "0:00" }, { title: "Oh Boy (Buddy Holly)", durationStr: "0:00" }, { title: "Life Of Sin (Sturgill Simpson)", durationStr: "0:00" }, { title: "Hungry Like The Wolf (Duran Duran)", durationStr: "0:00" }],
+            [{ title: "Cry Me A River (Justin Timberlake)", durationStr: "0:00" }, { title: "Back To Black (Amy Winehouse)", durationStr: "0:00" }, { title: "Can't Let Go (Lucinda Williams)", durationStr: "0:00" }, { title: "No Diggity (Blackstreet)", durationStr: "0:00" }, { title: "I Shot To Sheriff (Bob Marley)", durationStr: "0:00" }, { title: "Hand it over (Darren Maltais)", durationStr: "0:00" }, { title: "That's All Right Mama (Elvis Presley)", durationStr: "0:00" }, { title: "Runaround Sue (Dion)", durationStr: "0:00" }, { title: "Zombie (The Cranberries)", durationStr: "0:00" }, { title: "You Can't Judge A Book By The Cover (Bo Diddley)", durationStr: "0:00" }, { title: "Fishin' In The Dark (Nitty Gritty Dirt Band)", durationStr: "0:00" }, { title: "Paper Planes (M.I.A.)", durationStr: "0:00" }, { title: "Blitzkrieg Bop (The Ramones)", durationStr: "0:00" }, { title: "Day Tripper (The Beatles)", durationStr: "0:00" }, { title: "Driving My Life Away (Eddie Rabbitt)", durationStr: "0:00" }, { title: "Beautiful things (Darren Maltais)", durationStr: "0:00" }, { title: "Blindman River (Melissa Majeau)", durationStr: "0:00" }, { title: "Tennessee Whiskey (Chris Stapleton)", durationStr: "0:00" }, { title: "Another Road Home (Jeff McLellan)", durationStr: "0:00" }, { title: "Oh Boy (Buddy Holly)", durationStr: "0:00" }, { title: "Life Of Sin (Sturgill Simpson)", durationStr: "0:00" }, { title: "Hungry Like The Wolf (Duran Duran)", durationStr: "0:00" }],
             [{ title: "Paranoid (Black Sabbath)", durationStr: "0:00" }, { title: "It Takes a Lot to Laugh (Bob Dylan)", durationStr: "0:00" }, { title: "Flowers In Your Hair (The Lumineers)", durationStr: "0:00" }, { title: "Faith (Wham)", durationStr: "0:00" }, { title: "Still Falling (Jeff McLellan)", durationStr: "0:00" }, { title: "Driving My Life Away (Reprise?)", durationStr: "0:00" }, { title: "Norwegian Wood (The Beatles)", durationStr: "0:00" }, { title: "Bottom Feeders (Melissa Majeau)", durationStr: "0:00" }, { title: "Creep (Radiohead)", durationStr: "0:00" }, { title: "S.O.B. (Nathaniel Rateliff)", durationStr: "0:00" }, { title: "What'd I Say (Ray Charles)", durationStr: "0:00" }, { title: "Long Ride (Melissa Majeau)", durationStr: "0:00" }, { title: "The Thrill Is Gone (BB King)", durationStr: "0:00" }, { title: "Rocket Man (Elton John)", durationStr: "0:00" }]
         ];
         
@@ -443,25 +529,18 @@
         originalsData[1] = melissaSongs.map(t => ({ title: t, durationStr: "0:00" }));
         originalsData[2] = darrenSongs.map(t => ({ title: t, durationStr: "0:00" }));
 
-        // Emergency Data
-        const twoStepData = [
-            ["Folsom Prison Blues", "Fishin' in the Dark", "Driving My Life Away", "Cadillac Ranch", "Green River", "Ring of Fire", "I Walk the Line"].map(t => ({title:t, durationStr:"0:00"})),
-            ["Jambalaya", "Wagon Wheel", "Five Dollar Bill", "Guitar Town", "Looking Out My Back Door", "Midnight Rider", "That's Alright"].map(t => ({title:t, durationStr:"0:00"})),
-            ["Copperhead Road", "Boot Scootin' Boogie", "Chattahoochee", "Neon Moon", "Friends in Low Places"].map(t => ({title:t, durationStr:"0:00"})),
-            []
-        ];
-        const fiftiesData = [
-            ["Johnny B. Goode", "Runaround Sue", "That's Alright", "Oh Boy"].map(t => ({title:t, durationStr:"0:00"})),
-            ["You Can't Judge a Book", "My Babe", "Blue Christmas"].map(t => ({title:t, durationStr:"0:00"})),
-            ["Blue Suede Shoes", "Great Balls of Fire", "Hound Dog", "La Bamba", "Twist and Shout"].map(t => ({title:t, durationStr:"0:00"})),
-            []
-        ];
-        const popHitsData = [
-            ["Flowers (Miley Cyrus)", "Blank Space", "Hey Ya", "Seven Nation Army"].map(t => ({title:t, durationStr:"0:00"})),
-            ["No Diggity", "Paper Planes", "Steal My Kisses", "Zombie", "Use Somebody"].map(t => ({title:t, durationStr:"0:00"})),
-            ["Uptown Funk", "Mr. Brightside", "Shut Up and Dance", "Sweet Caroline"].map(t => ({title:t, durationStr:"0:00"})),
-            []
-        ];
+        // Emergency Data (Combined into Set 1 for UI simplicity)
+        const twostepSongs = ["Folsom Prison Blues", "Fishin' in the Dark", "Driving My Life Away", "Cadillac Ranch", "Green River", "Ring of Fire", "I Walk the Line", "Jambalaya", "Wagon Wheel", "Five Dollar Bill", "Guitar Town", "Looking Out My Back Door", "Midnight Rider", "That's Alright", "Copperhead Road", "Boot Scootin' Boogie", "Chattahoochee", "Neon Moon", "Friends in Low Places"];
+        const twoStepData = [twostepSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        
+        const fiftiesSongs = ["Johnny B. Goode", "Runaround Sue", "That's Alright", "Oh Boy", "You Can't Judge a Book", "My Babe", "Blue Christmas", "Blue Suede Shoes", "Great Balls of Fire", "Hound Dog", "La Bamba", "Twist and Shout"];
+        const fiftiesData = [fiftiesSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        
+        const popHitsSongs = ["Flowers (Miley Cyrus)", "Blank Space", "Hey Ya", "Seven Nation Army", "No Diggity", "Paper Planes", "Steal My Kisses", "Zombie", "Use Somebody", "Uptown Funk", "Mr. Brightside", "Shut Up and Dance", "Sweet Caroline"];
+        const popHitsData = [popHitsSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
+        
+        const danceSongs = ["Uptown Funk", "Hungry Like The Wolf (Duran Duran)", "Valerie", "Heart of Glass (Blondie)", "Day Tripper (The Beatles)", "September", "I Feel Good (James Brown)", "Get Down Tonight (KC & The Sunshine Band)"];
+        const danceData = [danceSongs.map(t => ({title:t, durationStr:"0:00"})), [], [], []];
 
         // State
         let customData = [[], [], [], []];
@@ -473,6 +552,7 @@
             twostep: JSON.parse(JSON.stringify(twoStepData)),
             fifties: JSON.parse(JSON.stringify(fiftiesData)),
             pophits: JSON.parse(JSON.stringify(popHitsData)),
+            dance: JSON.parse(JSON.stringify(danceData)), // New dance data
             live: [[],[],[],[]] // Dummy for live tab
         };
         
@@ -484,7 +564,7 @@
         }
 
         // Master Bank
-        const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead By A Century", "All Apologies", "ALL APOLOGIES (Nirvana)", "American Girl (Tom Petty)", "Another Road Home (Jeff McLellan)", "Back To Black", "Beautiful things (Darren Maltais)", "Before Our Graves (Jeff McLellan)", "Big River", "Blank Space (Ryan Adams)", "Blindman River (Melissa Majeau)", "Blister In The Sun", "Blitzkrieg Bop", "Blow At High Dough", "Blue Christmas (Elvis Presley)", "Bobcaygeon", "Bottom Feeders (Melissa Majeau)", "Brown Eyed Girl", "Cadillac Ranch (Bruce Springsteen)", "Can't Let Go (Lucinda Williams)", "Christmas (Baby Please Come Home) (Darlene Love)", "Cleopatra (The Lumineers)", "Colors (Black Pumas)", "Copperhead Road", "Creep (Radiohead)", "Cry Me A River (Justin Timberlake)", "Dancing In The Dark (Bruce Springsteen)", "Day Tripper (The Beatles)", "Don't Want to Wait (Darren Maltais)", "Dont Walk Away Eileen (Sam Roberts)", "Dreams (Fleetwood Mac)", "Driving My Life Away (Eddie Rabbitt)", "Faith (Wham)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Five Dollar Bill (Corb Lund)", "Flowers (Miley Cyrus)", "Flowers In Your Hair (The Lumineers)", "Folsom Prison Blues (Johnny Cash)", "Friends in Low Places", "Get Back (The Beatles)", "Green River (CCR)", "Guitar Town", "Hand it over (Darren Maltais)", "Harvest Moon (Neil Young)", "Heart of Glass (Blondie)", "Hey Ya", "Hungry Like The Wolf (Duran Duran)", "I Need Never Get Old (Nathaniel Rateliff)", "I Shot The Sheriff (Bob Marley)", "I Walk the Line", "I Wonder (Darren Maltais)", "I'm On Fire (Bruce Springsteen)", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun (Weezer)", "It Takes a Lot to Laugh (Bob Dylan)", "Jambalaya", "Jingle Bell Rock (Bobby Helms)", "Johnny B. Goode (Chuck Berry)", "Jolene (Dolly Parton)", "Just Another Number (Darren Maltais)", "King Of The Road (Dean Martin/Roger Miller)", "Layla (Derek and the Dominos)", "Life Of Sin (Sturgill Simpson)", "Little Lion Man", "Lonesome Grave (Darren Maltais)", "Long Ride (Melissa Majeau)", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider", "Mr. Brightside", "My Babe (Willie Dixon / Little Walter)", "Neon Moon", "No Bright Light (Darren Maltais)", "No Denial (Melissa Majeau)", "No Diggity (Blackstreet)", "Norwegian Wood (The Beatles)", "Oh Boy (Buddy Holly)", "Paper Planes (M.I.A.)", "Paranoid (Black Sabbath)", "Pride And Joy (Stevie Ray Vaughan)", "REAL LOVE BABY (Father John Misty)", "Rhiannon (Fleetwood Mac)", "Ring of Fire", "Rocket Man (Elton John)", "Runaround Sue (Dion)", "Santa Bring My Baby Back To Me (Elvis)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "Seven Nation Army", "Shut Up and Dance", "S.O.B. (Nathaniel Rateliff)", "Something in the Orange", "Spark (Jeff McLellan)", "Steal My Kisses (Ben Harper)", "Still Falling (Jeff McLellan)", "Sugar Daddy (Melissa Majeau)", "Sweet Caroline", "Tennessee Whiskey (Chris Stapleton)", "That's All Right Mama (Elvis Presley)", "The Thrill Is Gone (BB King)", "Those Days (Darren Maltais)", "Tonight in Black and White (Jeff McLellan)", "Twist and Shout", "Uptown Funk", "Use Somebody", "Valerie", "Wagon Wheel", "What'd I Say (Ray Charles)", "You Can't Judge A Book By The Cover (Bo Diddley)", "You Wreck Me (Tom Petty)", "Zombie (The Cranberries)"];
+        const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead By A Century", "All Apologies", "ALL APOLOGIES (Nirvana)", "American Girl (Tom Petty)", "Another Road Home (Jeff McLellan)", "Back To Black", "Beautiful things (Darren Maltais)", "Before Our Graves (Jeff McLellan)", "Big River", "Blank Space (Ryan Adams)", "Blindman River (Melissa Majeau)", "Blister In The Sun", "Blitzkrieg Bop", "Blow At High Dough", "Blue Christmas (Elvis Presley)", "Bobcaygeon", "Bottom Feeders (Melissa Majeau)", "Brown Eyed Girl", "Cadillac Ranch (Bruce Springsteen)", "Can't Let Go (Lucinda Williams)", "Christmas (Baby Please Come Home) (Darlene Love)", "Cleopatra (The Lumineers)", "Colors (Black Pumas)", "Copperhead Road", "Creep (Radiohead)", "Cry Me A River (Justin Timberlake)", "Dancing In The Dark (Bruce Springsteen)", "Day Tripper (The Beatles)", "Don't Want to Wait (Darren Maltais)", "Dont Walk Away Eileen (Sam Roberts)", "Dreams (Fleetwood Mac)", "Driving My Life Away (Eddie Rabbitt)", "Faith (Wham)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Five Dollar Bill (Corb Lund)", "Flowers (Miley Cyrus)", "Flowers In Your Hair (The Lumineers)", "Folsom Prison Blues (Johnny Cash)", "Friends in Low Places", "Get Back (The Beatles)", "Green River (CCR)", "Guitar Town", "Hand it over (Darren Maltais)", "Harvest Moon (Neil Young)", "Heart of Glass (Blondie)", "Hey Ya", "Hungry Like The Wolf (Duran Duran)", "I Need Never Get Old (Nathaniel Rateliff)", "I Shot To Sheriff (Bob Marley)", "I Walk the Line", "I Wonder (Darren Maltais)", "I'm On Fire (Bruce Springsteen)", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun (Weezer)", "It Takes a Lot to Laugh (Bob Dylan)", "Jambalaya", "Jingle Bell Rock (Bobby Helms)", "Johnny B. Goode (Chuck Berry)", "Jolene (Dolly Parton)", "Just Another Number (Darren Maltais)", "King Of The Road (Dean Martin/Roger Miller)", "Layla (Derek and the Dominos)", "Life Of Sin (Sturgill Simpson)", "Little Lion Man", "Lonesome Grave (Darren Maltais)", "Long Ride (Melissa Majeau)", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider", "Mr. Brightside", "My Babe (Willie Dixon / Little Walter)", "Neon Moon", "No Bright Light (Darren Maltais)", "No Denial (Melissa Majeau)", "No Diggity (Blackstreet)", "Norwegian Wood (The Beatles)", "Oh Boy (Buddy Holly)", "Paper Planes (M.I.A.)", "Paranoid (Black Sabbath)", "Pride And Joy (Stevie Ray Vaughan)", "REAL LOVE BABY (Father John Misty)", "Rhiannon (Fleetwood Mac)", "Ring of Fire", "Rocket Man (Elton John)", "Runaround Sue (Dion)", "Santa Bring My Baby Back To Me (Elvis)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "Seven Nation Army", "Shut Up and Dance", "S.O.B. (Nathaniel Rateliff)", "Something in the Orange", "Spark (Jeff McLellan)", "Steal My Kisses (Ben Harper)", "Still Falling (Jeff McLellan)", "Sugar Daddy (Melissa Majeau)", "Sweet Caroline", "Tennessee Whiskey (Chris Stapleton)", "That's All Right Mama (Elvis Presley)", "The Thrill Is Gone (BB King)", "Those Days (Darren Maltais)", "Tonight in Black and White (Jeff McLellan)", "Twist and Shout", "Uptown Funk", "Use Somebody", "Valerie", "Wagon Wheel", "What'd I Say (Ray Charles)", "You Can't Judge A Book By The Cover (Bo Diddley)", "You Wreck Me (Tom Petty)", "Zombie (The Cranberries)"];
         const masterBank = rawBankData.sort();
 
         // --- GLOBAL FUNCTIONS (Defined BEFORE usage) ---
@@ -503,7 +583,7 @@
             "Blister In The Sun": "Jeff",
             "Can't Let Go": "Melissa",
             "Cant Let Go": "Melissa",
-            "I Shot The Sheriff": "Jeff",
+            "I Shot To Sheriff": "Jeff",
             "You Wreck Me": "Jeff",
             "Norwegian Wood": "Jeff",
             "Johnny B. Goode": "Jeff",
@@ -567,7 +647,10 @@
 
         // Audience side rendering (New: Visual Grid)
         window.renderAudienceBank = () => {
-            const search = document.getElementById('bank-search-audience').value.toLowerCase();
+            // Search input is removed, but we keep the filtering logic if the user types anything
+            const searchInput = document.getElementById('bank-search-audience');
+            const search = searchInput ? searchInput.value.toLowerCase() : '';
+
             const list = document.getElementById('audience-bank-list');
             list.innerHTML = '';
             
@@ -712,7 +795,7 @@
             }
 
             // Tab Styles
-            ['christmas', 'custom', 'originals', 'twostep', 'fifties', 'pophits', 'live'].forEach(t => {
+            ['christmas', 'custom', 'originals', 'twostep', 'fifties', 'pophits', 'dance', 'live'].forEach(t => {
                 const btn = document.getElementById(`tab-${t}`);
                 if(!btn) return;
                 btn.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none whitespace-nowrap ";
@@ -722,10 +805,11 @@
                     else if(tabId === 'twostep') btn.classList.add('bg-red-900/50', 'text-red-100', 'shadow', 'border', 'border-red-500');
                     else if (tabId === 'fifties') btn.classList.add('bg-teal-900/50', 'text-teal-100', 'shadow', 'border', 'border-teal-500');
                     else if (tabId === 'pophits') btn.classList.add('bg-pink-900/50', 'text-pink-100', 'shadow', 'border', 'border-pink-500');
+                    else if (tabId === 'dance') btn.classList.add('bg-blue-900/50', 'text-blue-100', 'shadow', 'border', 'border-blue-500');
                     else btn.classList.add('text-white', 'bg-gray-700', 'shadow');
                 } else {
                     if (t === 'live') btn.classList.add('text-yellow-400', 'hover:text-white', 'hover:bg-gray-750', 'border', 'border-yellow-900/30');
-                    else if(t === 'twostep' || t === 'fifties' || t === 'pophits') {
+                    else if(t === 'twostep' || t === 'fifties' || t === 'pophits' || t === 'dance') {
                         // Emergency tabs visibility handled by class toggle
                         btn.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-750', btn.classList.contains('hidden') ? 'hidden' : 'block');
                     }
@@ -753,32 +837,39 @@
                 setSongs.forEach(s => setSeconds += timeToSeconds(s.durationStr));
                 grandTotalSeconds += setSeconds;
 
-                // Update Header Time
+                // Update Header Time and inject the Image Download Button (FIXED SECTION)
                 const container = document.getElementById(`set-container-${i}`);
-                const timeSpan = container.querySelector('.font-mono');
-                if(timeSpan) timeSpan.textContent = secondsToTime(setSeconds);
-                else {
-                    // Inject time span if missing (first run)
-                    const headerDiv = container.querySelector('.p-4');
-                    const title = headerDiv.querySelector('h2').innerText;
-                    const titleClass = headerDiv.querySelector('h2').className;
-                    const copyBtn = currentTab !== 'custom' ? `<button onclick="openCopyModal(${i})" class="text-indigo-400 hover:text-white p-1 ml-2 text-xs font-bold" title="Copy">COPY</button>` : '';
-                    headerDiv.innerHTML = `
-                        <h2 class="${titleClass}">${title}</h2>
-                        <div class="flex items-center gap-3">
-                            <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm">${secondsToTime(setSeconds)}</span>
-                            <div class="flex gap-1 no-print">
-                                ${copyBtn}
-                                <button onclick="downloadSetImage(${i})" class="text-gray-400 hover:text-white p-1" title="Save Image">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-                                </button>
-                            </div>
-                        </div>`;
-                }
+                const headerDiv = container.querySelector('.p-4');
+                const title = `Set ${i + 1}`;
+                const titleClass = "text-xl font-bold text-green-400";
+                
+                // Reconstruct the header safely
+                const copyBtn = currentTab !== 'custom' ? `<button onclick="openCopyModal(${i})" class="text-indigo-400 hover:text-white p-1 ml-2 text-xs font-bold" title="Copy">COPY</button>` : '';
+                
+                headerDiv.innerHTML = `
+                    <h2 class="${titleClass}">${title}</h2>
+                    <div class="flex items-center gap-3">
+                        <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm">${secondsToTime(setSeconds)}</span>
+                        <div class="flex gap-1 no-print">
+                            ${copyBtn}
+                            <button onclick="downloadSetImage(${i})" class="text-gray-400 hover:text-white p-1" title="Save Image">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                            </button>
+                        </div>
+                    </div>`;
+
 
                 listEl.innerHTML = '';
-                if(setSongs.length === 0) listEl.innerHTML = `<li class="p-4 text-gray-500 text-center text-sm italic">Empty Set</li>`;
-                else {
+                // Only render the first set if it's an emergency tab (Point 7)
+                if (activeSets[i].length === 0 && (currentTab === 'twostep' || currentTab === 'fifties' || currentTab === 'pophits' || currentTab === 'dance') && i > 0) {
+                     // Do not render empty boxes for emergency tabs
+                    container.classList.add('hidden');
+                    continue;
+                } else if (setSongs.length === 0) {
+                    listEl.innerHTML = `<li class="p-4 text-gray-500 text-center text-sm italic">Empty Set</li>`;
+                    container.classList.remove('hidden');
+                } else {
+                    container.classList.remove('hidden');
                     setSongs.forEach((song, idx) => {
                         const singer = getSinger(song.title);
                         const badgeHTML = getSingerBadgeHTML(singer);
@@ -839,13 +930,13 @@
         // Audience submits a song from the visual bank
         window.submitBankRequest = (songTitle) => {
             // Artist is implicitly empty for bank songs
+            // addAudienceRequest handles the anti-spam and vote logic
             window.addAudienceRequest(songTitle, '', 'bank'); 
+            
             document.getElementById('request-success').classList.remove('hidden');
             setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            // showToast is already called inside addAudienceRequest
             
-            // Optionally clear search field
-            document.getElementById('bank-search-audience').value = '';
+            // Re-render bank after request
             renderAudienceBank();
         }
 
@@ -859,6 +950,7 @@
                 return;
             }
             
+            // addAudienceRequest handles the anti-spam and vote logic
             window.addAudienceRequest(newSong, artist, 'new');
             
             // Clear form
@@ -867,7 +959,6 @@
             
             document.getElementById('request-success').classList.remove('hidden');
             setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            // showToast is already called inside addAudienceRequest
         }
 
         // --- UTILS & INIT ---
@@ -909,6 +1000,7 @@
             else if (currentTab === 'twostep') setCollections.twostep = JSON.parse(JSON.stringify(twoStepData));
             else if (currentTab === 'fifties') setCollections.fifties = JSON.parse(JSON.stringify(fiftiesData));
             else if (currentTab === 'pophits') setCollections.pophits = JSON.parse(JSON.stringify(popHitsData));
+            else if (currentTab === 'dance') setCollections.dance = JSON.parse(JSON.stringify(danceData));
             else if (currentTab === 'custom') { setCollections.custom = [[], [], [], []]; localStorage.removeItem('myCustomSets'); }
             
             render();
@@ -931,6 +1023,7 @@
         function activateTwoStep() { document.getElementById('tab-twostep').classList.remove('hidden'); switchTab('twostep'); }
         function activate50s() { document.getElementById('tab-fifties').classList.remove('hidden'); switchTab('fifties'); }
         function activatePopHits() { document.getElementById('tab-pophits').classList.remove('hidden'); switchTab('pophits'); }
+        function activateDance() { document.getElementById('tab-dance').classList.remove('hidden'); switchTab('dance'); }
         
         // --- COPY & ADD ---
         let sourceSetToCopy = null;
