@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.4 (Live)</title>
+    <title>Set List Creator 2.5 (Live)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,7 +15,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
         // --- Firebase Config ---
         // Updated with your credentials. 
@@ -63,10 +63,16 @@
                         `<span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full mr-2">Bank Song</span>` :
                         `<span class="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full mr-2">New Request</span>`;
                     
+                    const voteBadge = r.votes > 1 ? 
+                        `<span class="votes-badge bg-green-600 text-white text-xs px-2 py-1 rounded-full font-bold ml-2">${r.votes} Votes</span>` : '';
+                    
                     return `
                         <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-start border border-gray-600 animate-fade-in">
                             <div class="flex flex-col">
-                                <div class="font-bold text-white">${r.song}</div>
+                                <div class="font-bold text-white flex items-center">
+                                    ${r.song}
+                                    ${voteBadge}
+                                </div>
                                 ${r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : ''}
                                 <div class="mt-2 text-xs text-gray-500 flex items-center">
                                     ${originTag}
@@ -120,16 +126,42 @@
 
         // Database Helpers
         window.addAudienceRequest = async (song, artist, source = 'new') => {
-            if(!db) return;
+            if (!db) return;
+            
+            // Normalize song title for consistent lookups
+            const normalizedSong = song.trim(); 
+            const normalizedArtist = (artist || '').trim();
+
             try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), {
-                    song: song,
-                    artist: artist,
-                    votes: 1,
-                    timestamp: Date.now(),
-                    source: source // 'bank' or 'new'
-                });
-            } catch(e) { console.error(e); alert("Error sending request"); }
+                const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
+                
+                // 1. Query for an existing request matching the song title
+                const q = query(requestsRef, where("song", "==", normalizedSong));
+                const snapshot = await getDocs(q);
+
+                if (!snapshot.empty) {
+                    // 2. Request found: Increment the vote count for the first match
+                    const existingDoc = snapshot.docs[0];
+                    await updateDoc(existingDoc.ref, {
+                        votes: increment(1),
+                        // Update timestamp so newly voted songs come to the top if votes are equal
+                        timestamp: Date.now() 
+                    });
+                } else {
+                    // 3. Request not found: Add a new request
+                    await addDoc(requestsRef, {
+                        song: normalizedSong,
+                        artist: normalizedArtist,
+                        votes: 1,
+                        timestamp: Date.now(),
+                        source: source
+                    });
+                }
+                showToast(`Request for "${normalizedSong}" sent!`);
+            } catch (e) { 
+                console.error("Error adding/updating request:", e); 
+                showToast("Error sending request.", true);
+            }
         };
 
         async function deleteRequest(id) {
@@ -150,12 +182,14 @@
             onSnapshot(q, (snapshot) => {
                 const requests = [];
                 snapshot.forEach(doc => requests.push({id: doc.id, ...doc.data()}));
-                // Sort in memory to avoid index requirement (by votes then timestamp)
+                // Sort in memory: 1. By votes (descending), 2. By timestamp (ascending - oldest first if votes are tied)
                 requests.sort((a, b) => {
+                    // Primary sort: Votes (descending)
                     if ((b.votes || 0) !== (a.votes || 0)) {
                         return (b.votes || 0) - (a.votes || 0);
                     }
-                    return (a.timestamp || 0) - (b.timestamp || 0); // Older requests show first if votes are equal
+                    // Secondary sort: Timestamp (ascending)
+                    return (a.timestamp || 0) - (b.timestamp || 0); 
                 }); 
                 
                 if (typeof window.renderIncomingRequests === 'function') {
@@ -198,7 +232,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.4</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.5</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
                     
@@ -804,10 +838,12 @@
         
         // Audience submits a song from the visual bank
         window.submitBankRequest = (songTitle) => {
-            window.addAudienceRequest(songTitle, '', 'bank');
+            // Artist is implicitly empty for bank songs
+            window.addAudienceRequest(songTitle, '', 'bank'); 
             document.getElementById('request-success').classList.remove('hidden');
             setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            showToast(`Requested: ${songTitle}`);
+            // showToast is already called inside addAudienceRequest
+            
             // Optionally clear search field
             document.getElementById('bank-search-audience').value = '';
             renderAudienceBank();
@@ -831,7 +867,7 @@
             
             document.getElementById('request-success').classList.remove('hidden');
             setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            showToast("New request sent!");
+            // showToast is already called inside addAudienceRequest
         }
 
         // --- UTILS & INIT ---
