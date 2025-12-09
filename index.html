@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.1.1 (Live Connected)</title>
+    <title>Set List Creator 2.2 (Live)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,9 +18,11 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, increment, deleteDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
         // --- Firebase Config ---
-        // Extracted directly from your screenshot (image_bf03f2.png)
+        // Updated with your credentials. 
+        // We keep the check for '__firebase_config' so it works in this chat preview, 
+        // but it will use YOUR keys when live on GitHub.
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "AIzaSyB-_e7l_7LTDjU4zBCCNunGIRyf2zyTvhw",
+            apiKey: "AIzaSyB-_e7l_7LTDjU4zBCCnunGIRyf2zyTvhw",
             authDomain: "set-list-creator-ef3d8.firebaseapp.com",
             projectId: "set-list-creator-ef3d8",
             storageBucket: "set-list-creator-ef3d8.firebasestorage.app",
@@ -84,6 +86,7 @@
                 console.error("Auth Error:", error); 
                 const statusEl = document.getElementById('firebase-status');
                 if(statusEl) {
+                    // SHOW ACTUAL ERROR CODE for debugging
                     const code = error.code || error.message || "Unknown Error";
                     statusEl.innerHTML = `<span class="text-red-400 font-bold" title="${error.message}">⚠️ ${code}</span>`;
                 }
@@ -157,7 +160,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.1.1</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.2</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
                     
@@ -533,6 +536,37 @@
             });
         };
 
+        window.downloadAllImage = () => {
+            window.scrollTo(0,0);
+            const element = document.getElementById('sets-capture-area');
+            showToast("Processing full image...");
+            html2canvas(element, { 
+                backgroundColor: "#111827",
+                scale: 2,
+                onclone: (clonedDoc) => {
+                    const containers = clonedDoc.querySelectorAll('.set-container');
+                    containers.forEach(container => { container.style.height = 'auto'; container.style.overflow = 'visible'; container.style.marginBottom = '40px'; });
+                    const lists = clonedDoc.querySelectorAll('ul[id^="list-set-"]');
+                    lists.forEach(list => { list.style.maxHeight = 'none'; list.style.overflow = 'visible'; });
+                    const overflowHidden = clonedDoc.querySelectorAll('.overflow-hidden');
+                    overflowHidden.forEach(el => { el.style.overflow = 'visible'; el.style.height = 'auto'; });
+                    const textItems = clonedDoc.querySelectorAll('.truncate');
+                    textItems.forEach(el => {
+                        el.style.whiteSpace = 'normal'; el.style.overflow = 'visible'; el.style.textOverflow = 'clip'; el.style.lineHeight = '1.5'; el.style.paddingBottom = '5px'; el.style.display = 'block';
+                    });
+                }
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `setlist-full-${currentTab}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                showToast("Image downloaded!");
+            }).catch(err => {
+                console.error(err);
+                showToast("Error generating image");
+            });
+        };
+
         // --- APP LOGIC ---
 
         function switchTab(tabId) {
@@ -749,4 +783,4 @@
         });
     </script>
 </body>
-</html>
+</html>"
