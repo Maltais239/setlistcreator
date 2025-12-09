@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.2 (Live)</title>
+    <title>Set List Creator 2.3 (Live)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -22,7 +22,7 @@
         // We keep the check for '__firebase_config' so it works in this chat preview, 
         // but it will use YOUR keys when live on GitHub.
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "AIzaSyB-_e7l_7LTDjU4zBCCnunGIRyf2zyTvhw",
+            apiKey: "AIzaSyB-_e71_7lTDjU4zBCCnunGIRyf2zyTvhw",
             authDomain: "set-list-creator-ef3d8.firebaseapp.com",
             projectId: "set-list-creator-ef3d8",
             storageBucket: "set-list-creator-ef3d8.firebasestorage.app",
@@ -124,10 +124,14 @@
 
         function startRequestListeners() {
             if(!db) return;
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), orderBy('votes', 'desc'));
+            // NOTE: orderBy is removed here to comply with rules that restrict complex indexing
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'));
             onSnapshot(q, (snapshot) => {
                 const requests = [];
                 snapshot.forEach(doc => requests.push({id: doc.id, ...doc.data()}));
+                // Sort in memory to avoid index requirement
+                requests.sort((a, b) => (b.votes || 0) - (a.votes || 0)); 
+                
                 if (typeof window.renderIncomingRequests === 'function') {
                     window.renderIncomingRequests(requests);
                 }
@@ -160,7 +164,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.2</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.3</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Total Time: <span id="grand-total-time" class="text-white font-mono">0:00:00</span></p>
                     
@@ -181,7 +185,7 @@
                 <button onclick="activatePopHits()" class="bg-pink-600 hover:bg-pink-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-pink-500 shadow-lg shadow-pink-900/20 font-bold animate-pulse hover:animate-none">🎤 Pop</button>
                 <div class="w-px h-8 bg-gray-700 mx-2 hidden md:block"></div>
                 <button onclick="downloadAllImage()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg transition text-sm flex items-center gap-2 border border-indigo-500 shadow-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
                     Save Image
                 </button>
             </div>
@@ -398,7 +402,7 @@
         }
 
         // Master Bank
-        const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead by a Century", "All Apologies", "American Girl (Tom Petty)", "Another Road Home", "Back to Black", "Beautiful Things", "Before our Graves", "Big River", "Blank Space (Ryan Adams)", "Blindman River", "Blister in the Sun", "Blitzkrieg Bop", "Blow at High Dough", "Blue Christmas", "Bobcaygeon", "Bottom Feeders", "Brown Eyed Girl", "Cadillac Ranch", "Can't Let Go", "Christmas (Baby Please Come Home)", "Cleopatra", "Creep", "Cry Me a River", "Dancing in the Dark", "Day Tripper", "Don't Walk Away Eileen", "Don't Want to Wait (Darren Maltais)", "Dreams", "Drivin' my Life Away", "Faith", "Fishin' in the Dark", "Five Dollar Bill", "Flowers", "Flowers in your Hair", "Folsom Prison Blues", "Get Back", "Green River", "Guitar Town", "Hand it Over", "Harvest Moon", "Heart of Glass", "Hey Ya", "Hungry Like the Wolf", "I Shot the Sheriff", "I Walk the Line", "I Wonder (Darren Maltais)", "I'm on Fire", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun", "It Takes a lot to Laugh", "Jambalaya", "Jingle Bell Rock", "Johnny B. Goode", "Jolene", "Just Another Number (Darren Maltais)", "King of the Road", "Layla", "Life of Sin", "Little Lion Man", "Lonesome Grave (Darren Maltais)", "Long Ride", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider", "My Babe", "Need Never Get Old", "No Bright Light", "No Denial (Melissa Majeau)", "No Diggity", "Norwegian Wood", "Oh Boy", "Paper Planes", "Paranoid", "Pride and Joy", "Real Love Baby", "Rhiannon", "Ring of Fire", "Rocket Man", "Runaround Sue", "Santa Bring My Baby Back To Me", "Santa Claus Is Coming To Town", "Seven Nation Army", "SOB", "Something in the Orange", "Spark (Darren Maltais)", "Steal My Kisses", "Still Fallin'", "Sugar Daddy (Melissa Majeau)", "Tennessee Whiskey", "That's Alright", "The Thrill is Gone", "Those Days", "Tonight in Black and White", "Valerie", "Wagon Wheel", "What'd I say?", "White Christmas", "You Can't Judge a Book", "You Wreck Me", "Zombie"];
+        const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead By A Century", "All Apologies", "ALL APOLOGIES (Nirvana)", "American Girl (Tom Petty)", "Another Road Home (Jeff McLellan)", "Back To Black", "Beautiful things (Darren Maltais)", "Before Our Graves (Jeff McLellan)", "Big River", "Blank Space (Ryan Adams)", "Blindman River (Melissa Majeau)", "Blister In The Sun", "Blitzkrieg Bop", "Blow At High Dough", "Blue Christmas (Elvis Presley)", "Bobcaygeon", "Bottom Feeders (Melissa Majeau)", "Brown Eyed Girl", "Cadillac Ranch (Bruce Springsteen)", "Can't Let Go (Lucinda Williams)", "Christmas (Baby Please Come Home) (Darlene Love)", "Cleopatra (The Lumineers)", "Colors (Black Pumas)", "Copperhead Road", "Creep (Radiohead)", "Cry Me A River (Justin Timberlake)", "Dancing In The Dark (Bruce Springsteen)", "Day Tripper (The Beatles)", "Don't Want to Wait (Darren Maltais)", "Dont Walk Away Eileen (Sam Roberts)", "Dreams (Fleetwood Mac)", "Driving My Life Away (Eddie Rabbitt)", "Faith (Wham)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Five Dollar Bill (Corb Lund)", "Flowers (Miley Cyrus)", "Flowers In Your Hair (The Lumineers)", "Folsom Prison Blues (Johnny Cash)", "Friends in Low Places", "Get Back (The Beatles)", "Green River (CCR)", "Guitar Town", "Hand it over (Darren Maltais)", "Harvest Moon (Neil Young)", "Heart of Glass (Blondie)", "Hey Ya", "Hungry Like The Wolf (Duran Duran)", "I Need Never Get Old (Nathaniel Rateliff)", "I Shot The Sheriff (Bob Marley)", "I Walk the Line", "I Wonder (Darren Maltais)", "I'm On Fire (Bruce Springsteen)", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun (Weezer)", "It Takes a Lot to Laugh (Bob Dylan)", "Jambalaya", "Jingle Bell Rock (Bobby Helms)", "Johnny B. Goode (Chuck Berry)", "Jolene (Dolly Parton)", "Just Another Number (Darren Maltais)", "King Of The Road (Dean Martin/Roger Miller)", "Layla (Derek and the Dominos)", "Life Of Sin (Sturgill Simpson)", "Little Lion Man", "Lonesome Grave (Darren Maltais)", "Long Ride (Melissa Majeau)", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider", "Mr. Brightside", "My Babe (Willie Dixon / Little Walter)", "Neon Moon", "No Bright Light (Darren Maltais)", "No Denial (Melissa Majeau)", "No Diggity (Blackstreet)", "Norwegian Wood (The Beatles)", "Oh Boy (Buddy Holly)", "Paper Planes (M.I.A.)", "Paranoid (Black Sabbath)", "Pride And Joy (Stevie Ray Vaughan)", "REAL LOVE BABY (Father John Misty)", "Rhiannon (Fleetwood Mac)", "Ring of Fire", "Rocket Man (Elton John)", "Runaround Sue (Dion)", "Santa Bring My Baby Back To Me (Elvis)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "Seven Nation Army", "Shut Up and Dance", "S.O.B. (Nathaniel Rateliff)", "Something in the Orange", "Spark (Jeff McLellan)", "Steal My Kisses (Ben Harper)", "Still Falling (Jeff McLellan)", "Sugar Daddy (Melissa Majeau)", "Sweet Caroline", "Tennessee Whiskey (Chris Stapleton)", "That's All Right Mama (Elvis Presley)", "The Thrill Is Gone (BB King)", "Those Days (Darren Maltais)", "Tonight in Black and White (Jeff McLellan)", "Twist and Shout", "Uptown Funk", "Use Somebody", "Valerie", "Wagon Wheel", "What'd I Say (Ray Charles)", "You Can't Judge A Book By The Cover (Bo Diddley)", "You Wreck Me (Tom Petty)", "Zombie (The Cranberries)"];
         const masterBank = rawBankData.sort();
 
         // --- GLOBAL FUNCTIONS (Defined BEFORE usage) ---
@@ -653,7 +657,7 @@
                             <div class="flex gap-1 no-print">
                                 ${copyBtn}
                                 <button onclick="downloadSetImage(${i})" class="text-gray-400 hover:text-white p-1" title="Save Image">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
                                 </button>
                             </div>
                         </div>`;
@@ -749,6 +753,31 @@
             t.classList.remove('translate-y-20', 'opacity-0');
             setTimeout(() => t.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
+        
+        function resetToDefault() {
+            if (!confirm(`Are you sure you want to reset the current tab (${currentTab}) to its default songs? This cannot be undone.`)) return;
+            
+            // Deep copy the original data back
+            if (currentTab === 'christmas') setCollections.christmas = JSON.parse(JSON.stringify(christmasData));
+            else if (currentTab === 'originals') setCollections.originals = JSON.parse(JSON.stringify(originalsData));
+            else if (currentTab === 'twostep') setCollections.twostep = JSON.parse(JSON.stringify(twoStepData));
+            else if (currentTab === 'fifties') setCollections.fifties = JSON.parse(JSON.stringify(fiftiesData));
+            else if (currentTab === 'pophits') setCollections.pophits = JSON.parse(JSON.stringify(popHitsData));
+            else if (currentTab === 'custom') { setCollections.custom = [[], [], [], []]; localStorage.removeItem('myCustomSets'); }
+            
+            render();
+            showToast(`Tab '${currentTab}' reset to default.`);
+        }
+
+        function clearAll() {
+            if (!confirm(`Are you sure you want to clear ALL sets in the current tab (${currentTab})? This cannot be undone.`)) return;
+            
+            setCollections[currentTab] = [[], [], [], []];
+            if (currentTab === 'custom') localStorage.removeItem('myCustomSets');
+            
+            render();
+            showToast(`All sets in '${currentTab}' cleared.`);
+        }
 
         // --- EMERGENCY BUTTONS ---
         function activateTwoStep() { document.getElementById('tab-twostep').classList.remove('hidden'); switchTab('twostep'); }
@@ -767,6 +796,44 @@
             showToast("Set copied!");
         }
 
+        // --- IMPORT/EXPORT (Custom Tab) ---
+        function exportCustomData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(setCollections.custom));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "setlist_custom_backup.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            showToast("Custom sets exported.");
+        }
+
+        function importCustomData(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (Array.isArray(importedData) && importedData.length === 4 && importedData.every(Array.isArray)) {
+                        setCollections.custom = importedData;
+                        localStorage.setItem('myCustomSets', JSON.stringify(importedData));
+                        render();
+                        showToast("Custom sets imported successfully!");
+                    } else {
+                        alert("Invalid file format. Please import a file containing an array of 4 arrays.");
+                    }
+                } catch (error) {
+                    alert("Error parsing JSON file: " + error.message);
+                }
+                // Clear the input value so the same file can be imported again
+                input.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+
         // --- INIT LOGIC ---
         window.addEventListener('load', () => {
             // Check for Audience Mode
@@ -783,4 +850,4 @@
         });
     </script>
 </body>
-</html>"
+</html>
