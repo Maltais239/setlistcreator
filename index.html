@@ -147,10 +147,19 @@
             const deviceID = getDeviceID();
             const storageKey = `voted_${normalizedSong}`;
 
-            // 1. Client-side Anti-Spam Check
-            if (localStorage.getItem(storageKey) === deviceID) {
-                showToast(`You already requested "${normalizedSong}". Thank you!`, true);
-                return false;
+            // 1. Client-side Anti-Spam Check with Cooldown (15 minutes)
+            const lastVoted = localStorage.getItem(storageKey);
+            const COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+            
+            if (lastVoted) {
+                const lastVotedTime = parseInt(lastVoted);
+                const timeSince = Date.now() - lastVotedTime;
+                
+                if (timeSince < COOLDOWN_MS) {
+                    const minutesLeft = Math.ceil((COOLDOWN_MS - timeSince) / 60000);
+                    showToast(`Please wait ${minutesLeft} min before requesting "${normalizedSong}" again.`, true);
+                    return false;
+                }
             }
 
             try {
@@ -179,8 +188,8 @@
                     });
                 }
                 
-                // 5. Block future votes
-                localStorage.setItem(storageKey, deviceID);
+                // 5. Update timestamp in storage
+                localStorage.setItem(storageKey, Date.now().toString());
 
                 showToast(`Request for "${normalizedSong}" sent!`);
                 return true;
@@ -292,10 +301,39 @@
         #grand-total-time, .duration-input, .set-time-badge, .set-header-time-container {
             display: none !important;
         }
+        
+        /* Spinner CSS */
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 5px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white pb-20">
 
+    <!-- HIDDEN TEMPLATE FOR REUSABLE SET CONTROLS (THE ICON FIX) -->
+    <template id="set-control-template">
+        <div class="flex items-center gap-3">
+            <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm set-time-badge" style="display: none;">0:00</span>
+            <div class="flex gap-1 no-print">
+                <!-- COPY BUTTON HOOK -->
+                
+                <button class="set-image-download-btn text-gray-400 hover:text-white p-1 text-xl leading-none" title="Save Image">
+                    &#x1F4F8;
+                </button>
+            </div>
+        </div>
+    </template>
+    
     <!-- === BAND INTERFACE (Set List Creator) === -->
     <div id="band-interface" class="container mx-auto max-w-6xl p-4 md:p-8">
         
@@ -324,7 +362,7 @@
                 <button onclick="activateDance()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-blue-500 shadow-lg shadow-blue-900/20 font-bold animate-pulse hover:animate-none">🕺 Dance</button>
                 <div class="w-px h-8 bg-gray-700 mx-2 hidden md:block"></div>
                 <button onclick="downloadAllImage()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg transition text-sm flex items-center gap-2 border border-indigo-500 shadow-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 0 0 1-2 2H3a2 0 0 1-2-2V8a2 0 0 1 2-2h4l2-3h6l2 3h4a2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    <span class="text-xl leading-none mr-1">&#x1F4F8;</span>
                     Save Image
                 </button>
             </div>
@@ -468,7 +506,7 @@
                 <input id="audience-new-song" type="text" placeholder="Song Name (if not in bank)" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-3 focus:border-pink-500 outline-none">
                 <input id="audience-artist" type="text" placeholder="Artist (Optional)" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-4 focus:border-pink-500 outline-none">
                 
-                <button onclick="submitNewRequest()" class="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg transition transform active:scale-95">
+                <button id="btn-submit-new" onclick="submitNewRequest()" class="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg transition transform active:scale-95 flex justify-center items-center">
                     Send Request 🚀
                 </button>
             </div>
@@ -707,7 +745,7 @@
                 // Note: We use a wrapper function in the onclick to handle the request
                 list.innerHTML += `
                     <button class="audience-song-button bg-gray-700 hover:bg-yellow-800/50 text-white p-3 rounded-lg border border-gray-600 flex items-center justify-between text-left"
-                        onclick="submitBankRequest('${s.replace(/'/g, "\\'")}')">
+                        onclick="submitBankRequest(this, '${s.replace(/'/g, "\\'")}')">
                         <div class="flex items-center">
                             ${badgeHTML}
                             <span class="text-sm font-medium">${s}</span>
@@ -998,37 +1036,63 @@
         }
         
         // Audience submits a song from the visual bank
-        window.submitBankRequest = (songTitle) => {
+        window.submitBankRequest = async (btnElement, songTitle) => {
+            // UI Feedback: Loading State
+            const originalContent = btnElement.innerHTML;
+            btnElement.disabled = true;
+            btnElement.innerHTML = `<div class="flex items-center justify-between w-full"><div class="flex items-center"><span class="spinner"></span><span class="text-sm font-medium">Sending...</span></div></div>`;
+
             // Artist is implicitly empty for bank songs
             // addAudienceRequest handles the anti-spam and vote logic
-            window.addAudienceRequest(songTitle, '', 'bank'); 
+            const success = await window.addAudienceRequest(songTitle, '', 'bank'); 
             
-            document.getElementById('request-success').classList.remove('hidden');
-            setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            
-            // Re-render bank after request
-            renderAudienceBank();
+            // Revert UI State
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalContent;
+
+            if (success) {
+                document.getElementById('request-success').classList.remove('hidden');
+                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+                
+                // Re-render bank after request (to reflect any state changes if needed)
+                renderAudienceBank();
+            }
         }
 
         // Audience submits a new, non-bank song request
-        function submitNewRequest() {
-            const newSong = document.getElementById('audience-new-song').value.trim();
-            const artist = document.getElementById('audience-artist').value.trim();
+        async function submitNewRequest() {
+            const newSongInput = document.getElementById('audience-new-song');
+            const artistInput = document.getElementById('audience-artist');
+            const submitBtn = document.getElementById('btn-submit-new');
+
+            const newSong = newSongInput.value.trim();
+            const artist = artistInput.value.trim();
             
             if (!newSong) {
                 showToast("Please enter a song name for your request.", true);
                 return;
             }
+
+            // UI Feedback: Loading State
+            const originalBtnText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<span class="spinner"></span> Sending...`;
             
             // addAudienceRequest handles the anti-spam and vote logic
-            window.addAudienceRequest(newSong, artist, 'new');
+            const success = await window.addAudienceRequest(newSong, artist, 'new');
             
-            // Clear form
-            document.getElementById('audience-new-song').value = '';
-            document.getElementById('audience-artist').value = '';
+            // Revert UI State
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnText;
             
-            document.getElementById('request-success').classList.remove('hidden');
-            setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            if (success) {
+                // Clear form
+                newSongInput.value = '';
+                artistInput.value = '';
+                
+                document.getElementById('request-success').classList.remove('hidden');
+                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            }
         }
 
         // --- UTILS & INIT ---
