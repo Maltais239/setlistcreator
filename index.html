@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.8.1 (Live - No Time)</title>
+    <title>Set List Creator 2.8.2 (Play Some Neil)</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,9 +18,6 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc, increment, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
         // --- Firebase Config ---
-        // Updated with your credentials. 
-        // We keep the check for '__firebase_config' so it works in this chat preview, 
-        // but it will use YOUR keys when live on GitHub.
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyB-_e71_7lTDjU4zBCCnunGIRyf2zyTvhw",
             authDomain: "set-list-creator-ef3d8.firebaseapp.com",
@@ -118,7 +115,6 @@
                 console.error("Auth Error:", error); 
                 const statusEl = document.getElementById('firebase-status');
                 if(statusEl) {
-                    // SHOW ACTUAL ERROR CODE for debugging
                     const code = error.code || error.message || "Unknown Error";
                     statusEl.innerHTML = `<span class="text-red-400 font-bold" title="${error.message}">⚠️ ${code}</span>`;
                 }
@@ -142,37 +138,37 @@
         }
 
         // Database Helpers
+        // Returns TRUE if successful/new vote, FALSE if spam/error
         window.addAudienceRequest = async (song, artist, source = 'new') => {
-            if (!db) return;
+            if (!db) return false;
             
             const normalizedSong = song.trim(); 
             const normalizedArtist = (artist || '').trim();
             const deviceID = getDeviceID();
             const storageKey = `voted_${normalizedSong}`;
 
-            // 1. Client-side Anti-Spam Check (using LocalStorage)
+            // 1. Client-side Anti-Spam Check
             if (localStorage.getItem(storageKey) === deviceID) {
                 showToast(`You already requested "${normalizedSong}". Thank you!`, true);
-                return;
+                return false;
             }
 
             try {
                 const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
                 
-                // 2. Query for an existing request matching the song title
+                // 2. Query for existing
                 const q = query(requestsRef, where("song", "==", normalizedSong));
                 const snapshot = await getDocs(q);
 
                 if (!snapshot.empty) {
-                    // 3. Request found: Increment the vote count for the first match
+                    // 3. Increment vote
                     const existingDoc = snapshot.docs[0];
                     await updateDoc(existingDoc.ref, {
                         votes: increment(1),
-                        // Update timestamp so newly voted songs come to the top if votes are equal
                         timestamp: Date.now() 
                     });
                 } else {
-                    // 4. Request not found: Add a new request
+                    // 4. Add new
                     await addDoc(requestsRef, {
                         song: normalizedSong,
                         artist: normalizedArtist,
@@ -183,13 +179,15 @@
                     });
                 }
                 
-                // 5. Block future votes from this device/song
+                // 5. Block future votes
                 localStorage.setItem(storageKey, deviceID);
 
                 showToast(`Request for "${normalizedSong}" sent!`);
+                return true;
             } catch (e) { 
                 console.error("Error adding/updating request:", e); 
                 showToast("Error sending request.", true);
+                return false;
             }
         };
 
@@ -207,7 +205,6 @@
         async function clearAllRequests() {
             if (!db) return;
             
-            // Using a custom modal/toast instead of alert per instructions
             const confirmAction = window.confirmAction || (msg => window.confirm(msg));
             if (!confirmAction("Are you sure you want to PERMANENTLY clear ALL pending audience requests?")) return;
 
@@ -235,18 +232,14 @@
 
         function startRequestListeners() {
             if(!db) return;
-            // NOTE: orderBy is removed here to comply with rules that restrict complex indexing
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'));
             onSnapshot(q, (snapshot) => {
                 const requests = [];
                 snapshot.forEach(doc => requests.push({id: doc.id, ...doc.data()}));
-                // Sort in memory: 1. By votes (descending), 2. By timestamp (ascending - oldest first if votes are tied)
                 requests.sort((a, b) => {
-                    // Primary sort: Votes (descending)
                     if ((b.votes || 0) !== (a.votes || 0)) {
                         return (b.votes || 0) - (a.votes || 0);
                     }
-                    // Secondary sort: Timestamp (ascending)
                     return (a.timestamp || 0) - (b.timestamp || 0); 
                 }); 
                 
@@ -258,31 +251,20 @@
             });
         }
         
-        // Band saves a request to their setlist
         window.saveRequestToSet = (song, artist, requestId) => {
-            // Default to Set 4 (index 3) since we don't have a selection UI yet
             const targetSetIndex = 3; 
             const songTitle = artist ? `${song} (${artist})` : song;
-            
-            // 1. Add to custom set list (always targeting Set 4)
             setCollections.custom[targetSetIndex].push({title: songTitle, durationStr: "0:00"});
             localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
-            
-            // 2. Switch to Custom tab and re-render
             switchTab('custom');
-            
-            // 3. Delete the request from the live queue
             deleteRequest(requestId);
-            
             showToast(`"${songTitle}" saved to Set 4 and cleared from queue!`);
         }
 
-        // --- GLOBAL EXPORTS (FIX for ReferenceError) ---
+        // --- GLOBAL EXPORTS ---
         window.deleteRequest = deleteRequest;
         window.clearAllRequests = clearAllRequests;
-        window.saveRequestToSet = window.saveRequestToSet; // Keep reference to function defined above
-
-
+        window.saveRequestToSet = window.saveRequestToSet; 
     </script>
 
     <style>
@@ -299,7 +281,6 @@
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
 
-        /* Custom style for audience bank */
         .audience-song-button {
             transition: background-color 0.1s, transform 0.1s;
         }
@@ -308,14 +289,7 @@
         }
         
         /* Time Display Removal CSS */
-        #grand-total-time, .duration-input {
-            display: none !important;
-        }
-        .set-time-badge { /* Ensure the time badge slot is removed or visually collapsed */
-            display: none !important;
-        }
-        .set-header-time-container {
-             /* Remove the space that was used for the time calculation display */
+        #grand-total-time, .duration-input, .set-time-badge, .set-header-time-container {
             display: none !important;
         }
     </style>
@@ -328,7 +302,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.8.1</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.8.2 (Play Some Neil)</h1>
                 <div class="flex flex-col md:flex-row gap-4 mt-2">
                     <p class="text-gray-400 text-sm mt-1">4 Sets</p>
                     
