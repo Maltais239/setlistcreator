@@ -21,13 +21,24 @@
         /* --- DRAG & DROP STYLES --- */
         .drag-handle { 
             cursor: grab; 
-            padding: 12px 18px; /* Touch target */
-            font-size: 1.5rem;
-            touch-action: none; /* CRITICAL for mobile */
-            color: #6b7280;
-            transition: color 0.2s;
+            padding: 15px 20px; /* Larger touch target for mobile */
+            font-size: 1.6rem;
+            touch-action: none; /* CRITICAL: Prevents scrolling when touching handle */
+            color: #9ca3af;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
         }
-        .drag-handle:active { cursor: grabbing; color: #818cf8; }
+        
+        /* Visual feedback when handle is pressed */
+        .drag-handle:active { 
+            cursor: grabbing; 
+            color: #818cf8; 
+            background-color: rgba(255,255,255,0.05);
+            transform: scale(1.15); 
+        }
         
         /* The item currently being dragged (floating) */
         .sortable-drag { 
@@ -495,12 +506,14 @@
                 if(el) sortables.push(new Sortable(el, { 
                     group: 'shared', 
                     animation: 200, 
-                    delay: 150, 
+                    delay: 100, // Reduced delay for snappier mobile feel (was 150)
                     delayOnTouchOnly: true,
                     handle: '.drag-handle', 
                     ghostClass: 'sortable-ghost', 
                     chosenClass: 'sortable-chosen',
                     dragClass: 'sortable-drag',
+                    forceFallback: false, // Default is better for mobile touch events
+                    fallbackTolerance: 3, // Allow a few pixels of movement before cancelling drag (prevents jitter)
                     onChoose: function (evt) {
                         if (navigator.vibrate) navigator.vibrate(50);
                     },
@@ -1204,6 +1217,105 @@
 
         window.closePinModal = () => {
             document.getElementById('pin-modal').classList.add('hidden');
+        };
+        
+        // Audience Bank
+        window.renderAudienceBankFallback = () => {
+             const list = document.getElementById('audience-bank-list');
+             if(!list) return;
+             // masterBank is now dynamically fetched
+             const songs = window.masterBank || window.activeRotationList || []; 
+             if(songs.length === 0) {
+                 list.innerHTML = '<div class="text-gray-400 text-center p-4">Loading song list...</div>';
+                 return;
+             }
+             list.innerHTML = songs.map(s => `
+                <button onclick="window.submitBankRequest('${s.replace(/'/g, "\\'")}')" class="w-full text-left bg-transparent hover:bg-white/10 p-3 rounded-lg text-sm text-gray-200 border-b border-white/5 flex justify-between items-center group transition-colors">
+                    <span>${s}</span>
+                    <span class="text-xs text-pink-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity">REQUEST +</span>
+                </button>
+            `).join('');
+        };
+        
+        window.submitBankRequest = async (songName) => {
+             const success = await window.addAudienceRequest(songName, '', 'bank');
+             if(success) {
+                  document.getElementById('request-success').classList.remove('hidden');
+                  setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+             }
+        }
+        
+        window.submitNewRequest = async () => {
+            const songInput = document.getElementById('audience-new-song');
+            const artistInput = document.getElementById('audience-artist');
+            let song = songInput.value.trim();
+            const artist = artistInput.value.trim();
+            
+            if(!song) return showToast("Please enter a song name", true);
+            if(song.length < 3) return showToast("Song name too short", true);
+            if(/(.)\1{2,}/.test(song)) return showToast("Invalid song name", true);
+            if(!/[aeiouy]/i.test(song)) return showToast("Please enter a valid song name", true);
+
+            const lowerSong = song.toLowerCase();
+            const inInternalDB = window.fullDatabase.some(dbSong => dbSong.toLowerCase().includes(lowerSong));
+            if (inInternalDB) {
+                 await processRequest(song, artist, 'new');
+                 return;
+            }
+
+            const submitBtn = document.getElementById('btn-submit-new');
+            const originalBtnText = submitBtn.innerHTML;
+            submitBtn.innerHTML = 'Verifying...';
+            submitBtn.disabled = true;
+
+            try {
+                const searchTerm = artist ? `${song} ${artist}` : song;
+                const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=song&limit=5`);
+                const data = await res.json();
+                if (data.resultCount > 0) {
+                     const escapedInput = window.sanitizeId(lowerSong).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, ' ');
+                     const validMatch = data.results.find(result => {
+                         const track = result.trackName.toLowerCase();
+                         const regex = new RegExp(`(^|\\s|\\(|\\)|-)${escapedInput}($|\\s|\\(|\\)|-)`, 'i');
+                         return track.includes(lowerSong) && regex.test(track);
+                     });
+                     if(validMatch) {
+                         const finalArtist = artist || validMatch.artistName;
+                         await processRequest(song, finalArtist, 'new');
+                     } else {
+                         showToast("Could not verify this song exists. Please check spelling.", true);
+                     }
+                } else {
+                     showToast("Could not verify this song exists. Please check spelling.", true);
+                }
+            } catch (e) {
+                console.error("Verification failed", e);
+                showToast("Verification service unavailable. Try again.", true);
+            } finally {
+                submitBtn.innerHTML = originalBtnText;
+                submitBtn.disabled = false;
+            }
+        };
+        
+        async function processRequest(song, artist, type) {
+             const success = await window.addAudienceRequest(song, artist, type);
+             if(success) {
+                document.getElementById('audience-new-song').value = '';
+                document.getElementById('audience-artist').value = '';
+                document.getElementById('request-success').classList.remove('hidden');
+                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            }
+        }
+        
+        window.copyAudienceLink = () => {
+            const audienceUrl = window.location.href + (window.location.href.includes('?') ? '&' : '?') + "mode=audience";
+            const tempInput = document.createElement("input");
+            tempInput.value = audienceUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempInput);
+            showToast("🔗 Link copied to clipboard!");
         };
 
     </script>
