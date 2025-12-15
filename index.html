@@ -3,21 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Set List Creator 2.8.2 (Play Some Neil)</title>
+    <title>Setlist Creator 2.9.8</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <!-- Firebase SDKs -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs, doc, updateDoc, increment, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where, getDocs, doc, setDoc, getDoc, updateDoc, increment, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Firebase Config ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
             apiKey: "AIzaSyB-_e71_7lTDjU4zBCCnunGIRyf2zyTvhw",
             authDomain: "set-list-creator-ef3d8.firebaseapp.com",
@@ -29,80 +29,213 @@
         };
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'setlist-v2-demo';
 
-        // Init Firebase
         let app, auth, db;
         try {
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-            window.db = db; // Expose for non-module script
+            window.db = db;
             window.auth = auth;
             window.appId = appId;
+            window.doc = doc;
+            window.setDoc = setDoc;
+            window.getDoc = getDoc;
+            window.collection = collection;
+            window.addDoc = addDoc;
+            window.updateDoc = updateDoc;
+            window.increment = increment;
+            window.deleteDoc = deleteDoc;
+            window.query = query;
+            window.where = where;
+            window.getDocs = getDocs;
+            window.writeBatch = writeBatch;
         } catch (e) {
             console.error("Firebase init error:", e);
         }
         
-        // --- DEVICE TRACKING (For anti-spam) ---
-        function getDeviceID() {
-            let deviceID = localStorage.getItem('deviceID');
-            if (!deviceID) {
-                deviceID = crypto.randomUUID();
-                localStorage.setItem('deviceID', deviceID);
-            }
-            return deviceID;
-        }
+        // UTILS
+        window.showToast = (msg, isError = false) => {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            if(!toast || !msgEl) return;
+            msgEl.textContent = msg;
+            toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl transform transition-all duration-300 z-50 ${isError ? 'bg-red-600' : 'bg-green-600'} text-white translate-y-0 opacity-100`;
+            setTimeout(() => {
+                toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl transform transition-all duration-300 z-50 ${isError ? 'bg-red-600' : 'bg-green-600'} text-white translate-y-20 opacity-0`;
+            }, 3000);
+        };
 
-        // --- DISPLAY LOGIC ---
-        window.renderIncomingRequests = (requests) => {
-            const list = document.getElementById('requests-list');
-            if(!list) return; // Not in band view
-            
-            // Update badge count
-            const liveBadge = document.querySelector('#live-controls .bg-red-500');
-            if(liveBadge) liveBadge.textContent = requests.length > 0 ? `${requests.length} New` : 'Live';
+        // LYRICS CONFIG
+        const GITHUB_USER = "Maltais239";
+        const GITHUB_REPO = "interactives";
+        const GITHUB_BRANCH = "main";
+        const GITHUB_PATH = "songfiles";
+        const GITHUB_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${GITHUB_PATH}/`;
 
-            if(requests.length === 0) {
-                list.innerHTML = `<div class="text-center text-gray-500 py-10 italic">No requests yet.</div>`;
-            } else {
-                list.innerHTML = requests.map(r => {
-                    const originTag = r.source === 'bank' ? 
-                        `<span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full mr-2">Bank Song</span>` :
-                        `<span class="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full mr-2">New Request</span>`;
-                    
-                    const voteBadge = r.votes > 1 ? 
-                        `<span class="votes-badge bg-green-600 text-white text-xs px-2 py-1 rounded-full font-bold ml-2">${r.votes} Votes</span>` : '';
-                    
-                    const artistDisplay = r.artist ? `<div class="text-xs text-gray-400">${r.artist}</div>` : '';
-                    
-                    return `
-                        <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-start border border-gray-600 animate-fade-in">
-                            <div class="flex flex-col">
-                                <div class="font-bold text-white flex items-center">
-                                    ${r.song}
-                                    ${voteBadge}
-                                </div>
-                                ${artistDisplay}
-                                <div class="mt-2 text-xs text-gray-500 flex items-center">
-                                    ${originTag}
-                                    <div class="text-xs text-pink-300">${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                                </div>
-                            </div>
-                            <div class="flex flex-col gap-1 flex-shrink-0">
-                                <button onclick="window.saveRequestToSet('${r.song.replace(/'/g, "\\'")}', '${r.artist.replace(/'/g, "\\'")}', '${r.id}')" 
-                                    class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded transition-colors" title="Add to Set 4 and clear">
-                                    Save
-                                </button>
-                                <button onclick="window.deleteRequest('${r.id}')" class="text-xs bg-gray-600 hover:bg-red-500 text-white px-2 py-1 rounded transition-colors" title="Clear Request">
-                                    Clear
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+        // SCROLLING VARIABLES
+        let scrollTimer = null;
+        let scrollDelay = 50; 
+        const minDelay = 10;
+        const maxDelay = 150; 
+
+        // LYRICS FUNCTIONS - Defined on Window immediately
+        window.sanitizeId = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+        window.stopScroll = () => {
+            if (scrollTimer) clearInterval(scrollTimer);
+            scrollTimer = null;
+            const btn = document.getElementById('btn-autoscroll');
+            if(btn) {
+                btn.innerHTML = '▶️';
+                btn.classList.remove('bg-red-600', 'text-white', 'border-red-500');
+                btn.classList.add('bg-gray-700', 'text-gray-300');
             }
         };
 
-        // Auth Logic
+        window.openLyricsModal = async (title, artist) => {
+            try {
+                const modal = document.getElementById('lyrics-modal');
+                const contentArea = document.getElementById('lyrics-content');
+                const modalTitle = document.getElementById('lyrics-modal-title');
+                const sourceBadge = document.getElementById('lyrics-source-badge');
+                
+                modalTitle.textContent = title;
+                modal.classList.remove('hidden');
+                
+                if(typeof window.stopScroll === 'function') window.stopScroll();
+
+                contentArea.innerHTML = '<div class="flex items-center justify-center h-40"><div class="spinner"></div><span class="text-gray-400 ml-2">Searching...</span></div>';
+                document.getElementById('lyrics-view-mode').classList.remove('hidden');
+                document.getElementById('lyrics-edit-mode').classList.add('hidden');
+                sourceBadge.innerHTML = '';
+                
+                let lyricsContent = null;
+                let source = 'none';
+
+                if(db) {
+                    try {
+                        const songId = window.sanitizeId(title);
+                        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'songs', songId);
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists() && docSnap.data().content) {
+                            lyricsContent = docSnap.data().content;
+                            source = 'firebase';
+                        }
+                    } catch (e) { console.error("Firebase fetch error:", e); }
+                }
+
+                if (!lyricsContent) {
+                    try {
+                        const cleanTitle = title.split('(')[0].trim();
+                        let ghUrl = GITHUB_BASE_URL + encodeURIComponent(cleanTitle) + ".txt";
+                        let res = await fetch(ghUrl);
+                        if (!res.ok) {
+                            if (cleanTitle !== title) {
+                                ghUrl = GITHUB_BASE_URL + encodeURIComponent(title) + ".txt";
+                                res = await fetch(ghUrl);
+                            }
+                        }
+                        if (res.ok) {
+                            lyricsContent = await res.text();
+                            source = 'github';
+                        }
+                    } catch (e) { console.error("GitHub fetch error:", e); }
+                }
+
+                if (lyricsContent) {
+                    window.renderLyrics(lyricsContent);
+                    document.getElementById('lyrics-textarea').value = lyricsContent;
+                    if(source === 'firebase') {
+                        sourceBadge.innerHTML = '<span class="text-[10px] bg-indigo-900 text-indigo-300 px-2 py-1 rounded border border-indigo-700">Cloud Saved</span>';
+                    } else {
+                        sourceBadge.innerHTML = '<span class="text-[10px] bg-gray-700 text-gray-300 px-2 py-1 rounded border border-gray-600">GitHub</span>';
+                    }
+                } else {
+                    contentArea.innerHTML = `<div class="text-gray-500 italic text-center mt-10"><p class="mb-2">No lyrics found for "${title}"</p><button onclick="toggleEditMode()" class="mt-4 text-indigo-400 hover:text-white underline">Write Lyrics Now</button></div>`;
+                    document.getElementById('lyrics-textarea').value = '';
+                }
+                window.currentLyricsSong = { title, artist, id: window.sanitizeId(title) };
+            } catch(err) {
+                console.error("OpenLyrics Error", err);
+                showToast("Error opening lyrics", true);
+            }
+        };
+
+        window.renderLyrics = (text) => {
+            const html = text.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>").replace(/(\[[A-G][b#]?[0-9]*[a-z]*\])/g, '<span class="text-yellow-400 font-bold">$1</span>');
+            document.getElementById('lyrics-content').innerHTML = `<div class="font-mono text-sm whitespace-pre-wrap pb-40">${html}</div>`;
+        };
+
+        window.toggleEditMode = () => {
+            window.stopScroll();
+            const viewMode = document.getElementById('lyrics-view-mode');
+            const editMode = document.getElementById('lyrics-edit-mode');
+            if (viewMode.classList.contains('hidden')) {
+                viewMode.classList.remove('hidden');
+                editMode.classList.add('hidden');
+            } else {
+                viewMode.classList.add('hidden');
+                editMode.classList.remove('hidden');
+            }
+        };
+
+        window.saveLyrics = async () => {
+            const text = document.getElementById('lyrics-textarea').value;
+            const song = window.currentLyricsSong;
+            if(!db || !song) return;
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'songs', song.id);
+                await setDoc(docRef, { title: song.title, artist: song.artist, content: text, lastUpdated: Date.now() }, { merge: true });
+                window.renderLyrics(text);
+                window.toggleEditMode();
+                showToast("Lyrics saved!");
+            } catch (e) { showToast("Error saving lyrics.", true); }
+        };
+        
+        window.toggleAutoScroll = () => {
+            const btn = document.getElementById('btn-autoscroll');
+            if (scrollTimer) {
+                window.stopScroll();
+            } else {
+                if(btn) {
+                    btn.innerHTML = '⏸️';
+                    btn.classList.add('bg-red-600', 'text-white', 'border-red-500');
+                    btn.classList.remove('bg-gray-700', 'text-gray-300');
+                }
+                const container = document.getElementById('lyrics-view-mode');
+                const doScroll = () => {
+                    container.scrollTop += 1;
+                    if(container.scrollTop + container.clientHeight >= container.scrollHeight) window.stopScroll();
+                };
+                scrollTimer = setInterval(doScroll, scrollDelay);
+            }
+        };
+
+        window.changeSpeed = (delta) => {
+            scrollDelay += delta;
+            if (scrollDelay < minDelay) scrollDelay = minDelay;
+            if (scrollDelay > maxDelay) scrollDelay = maxDelay;
+            const speedDisplay = document.getElementById('scroll-speed-display');
+            if(speedDisplay) {
+                const percentage = Math.round(((maxDelay - scrollDelay) / (maxDelay - minDelay)) * 100);
+                speedDisplay.innerText = percentage + '%';
+            }
+            if (scrollTimer) {
+                clearInterval(scrollTimer);
+                const container = document.getElementById('lyrics-view-mode');
+                scrollTimer = setInterval(() => {
+                    container.scrollTop += 1;
+                    if(container.scrollTop + container.clientHeight >= container.scrollHeight) window.stopScroll();
+                }, scrollDelay);
+            }
+        };
+        
+        window.closeLyricsModal = () => {
+            window.stopScroll();
+            document.getElementById('lyrics-modal').classList.add('hidden');
+        };
+
+        // AUTH
         async function initAuth() {
             if (!auth) return;
             try {
@@ -112,12 +245,8 @@
                     await signInAnonymously(auth);
                 }
             } catch (error) { 
-                console.error("Auth Error:", error); 
                 const statusEl = document.getElementById('firebase-status');
-                if(statusEl) {
-                    const code = error.code || error.message || "Unknown Error";
-                    statusEl.innerHTML = `<span class="text-red-400 font-bold" title="${error.message}">⚠️ ${code}</span>`;
-                }
+                if(statusEl) statusEl.innerHTML = `<span class="text-red-400 font-bold">⚠️ Auth Error</span>`;
             }
         }
 
@@ -128,152 +257,259 @@
                 if (user) {
                     console.log("Connected as", user.uid);
                     const statusEl = document.getElementById('firebase-status');
-                    if(statusEl) statusEl.innerHTML = '<span class="text-green-400 animate-pulse">● Live</span>';
-                    
+                    if(statusEl) statusEl.innerHTML = '<span class="text-green-400 animate-pulse">● Online</span>';
                     if(!window.location.search.includes('mode=audience')) {
                         startRequestListeners();
+                        startCollaborationListener();
+                        startRotationListener();
                     }
                 }
             });
         }
 
-        // Database Helpers
-        // Returns TRUE if successful/new vote, FALSE if spam/error
+        // AUDIENCE & REQUESTS
         window.addAudienceRequest = async (song, artist, source = 'new') => {
             if (!db) return false;
-            
             const normalizedSong = song.trim(); 
-            const normalizedArtist = (artist || '').trim();
-            const deviceID = getDeviceID();
-            const storageKey = `voted_${normalizedSong}`;
-
-            // 1. Client-side Anti-Spam Check with Cooldown (15 minutes)
-            const lastVoted = localStorage.getItem(storageKey);
-            const COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+            const deviceID = localStorage.getItem('deviceID') || crypto.randomUUID();
+            if(!localStorage.getItem('deviceID')) localStorage.setItem('deviceID', deviceID);
             
-            if (lastVoted) {
-                const lastVotedTime = parseInt(lastVoted);
-                const timeSince = Date.now() - lastVotedTime;
-                
-                if (timeSince < COOLDOWN_MS) {
-                    const minutesLeft = Math.ceil((COOLDOWN_MS - timeSince) / 60000);
-                    showToast(`Please wait ${minutesLeft} min before requesting "${normalizedSong}" again.`, true);
-                    return false;
-                }
+            const storageKey = `voted_${normalizedSong.replace(/[^a-zA-Z0-9]/g, '')}`;
+            const lastVoted = localStorage.getItem(storageKey);
+            const COOLDOWN_MS = 15 * 60 * 1000;
+            
+            if (lastVoted && (Date.now() - parseInt(lastVoted) < COOLDOWN_MS)) {
+                showToast(`You already requested "${normalizedSong}".`, true);
+                return false;
             }
 
             try {
                 const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
-                
-                // 2. Query for existing
                 const q = query(requestsRef, where("song", "==", normalizedSong));
                 const snapshot = await getDocs(q);
 
                 if (!snapshot.empty) {
-                    // 3. Increment vote
-                    const existingDoc = snapshot.docs[0];
-                    await updateDoc(existingDoc.ref, {
-                        votes: increment(1),
-                        timestamp: Date.now() 
-                    });
+                    await updateDoc(snapshot.docs[0].ref, { votes: increment(1), timestamp: Date.now() });
                 } else {
-                    // 4. Add new
                     await addDoc(requestsRef, {
                         song: normalizedSong,
-                        artist: normalizedArtist,
+                        artist: (artist || '').trim(),
                         votes: 1,
                         timestamp: Date.now(),
                         source: source,
                         voterID: deviceID
                     });
                 }
-                
-                // 5. Update timestamp in storage
                 localStorage.setItem(storageKey, Date.now().toString());
-
                 showToast(`Request for "${normalizedSong}" sent!`);
                 return true;
-            } catch (e) { 
-                console.error("Error adding/updating request:", e); 
-                showToast("Error sending request.", true);
-                return false;
-            }
+            } catch (e) { console.error(e); showToast("Error sending request.", true); return false; }
         };
 
         async function deleteRequest(id) {
             if (!db) return;
-            try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id));
-                showToast("Request cleared.");
-            } catch (e) {
-                console.error("Error deleting request:", e);
-                showToast("Error clearing request.", true);
-            }
+            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'requests', id)); showToast("Request cleared."); } catch (e) { showToast("Error clearing.", true); }
         }
         
         async function clearAllRequests() {
-            if (!db) return;
-            
-            const confirmAction = window.confirmAction || (msg => window.confirm(msg));
-            if (!confirmAction("Are you sure you want to PERMANENTLY clear ALL pending audience requests?")) return;
-
-            const requestsRef = collection(db, 'artifacts', appId, 'public', 'data', 'requests');
-            const snapshot = await getDocs(query(requestsRef));
-            
-            if (snapshot.empty) {
-                showToast("No requests to clear.");
-                return;
-            }
-            
-            const batch = writeBatch(db);
-            snapshot.docs.forEach((d) => {
-                batch.delete(d.ref);
-            });
-
-            try {
-                await batch.commit();
-                showToast(`Cleared ${snapshot.size} requests.`);
-            } catch (e) {
-                console.error("Error clearing all requests:", e);
-                showToast("Error clearing all requests.", true);
-            }
+            if (!db || !confirm("Clear ALL pending requests?")) return;
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'));
+            const s = await getDocs(q);
+            const b = writeBatch(db);
+            s.forEach(d => b.delete(d.ref));
+            await b.commit();
+            showToast("Requests cleared.");
         }
 
         function startRequestListeners() {
             if(!db) return;
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'requests'));
-            onSnapshot(q, (snapshot) => {
-                const requests = [];
-                snapshot.forEach(doc => requests.push({id: doc.id, ...doc.data()}));
-                requests.sort((a, b) => {
-                    if ((b.votes || 0) !== (a.votes || 0)) {
-                        return (b.votes || 0) - (a.votes || 0);
-                    }
-                    return (a.timestamp || 0) - (b.timestamp || 0); 
-                }); 
-                
-                if (typeof window.renderIncomingRequests === 'function') {
-                    window.renderIncomingRequests(requests);
-                }
-            }, (error) => {
-                console.error("Firestore Listen Error:", error);
+            onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'requests')), (s) => {
+                const r = []; s.forEach(d => r.push({id: d.id, ...d.data()}));
+                r.sort((a,b) => (b.votes||0)-(a.votes||0) || (a.timestamp||0)-(b.timestamp||0));
+                if (typeof window.renderIncomingRequests === 'function') window.renderIncomingRequests(r);
             });
         }
         
+        // --- CLOUD ROTATION & COLLABORATION ---
+        let collaborationUnsubscribe = null;
+        let rotationUnsubscribe = null;
+        window.managerMode = false; // Default: Locked
+
+        // PIN MODAL LOGIC
+        window.toggleManagerMode = () => {
+            if(window.managerMode) {
+                window.managerMode = false;
+                showToast("Manager Mode Locked");
+                renderBank();
+            } else {
+                document.getElementById('pin-modal').classList.remove('hidden');
+                document.getElementById('manager-pin-input').value = '';
+                document.getElementById('manager-pin-input').focus();
+            }
+        };
+
+        window.checkManagerPin = () => {
+            const input = document.getElementById('manager-pin-input');
+            if(input.value === "1234") {
+                window.managerMode = true;
+                showToast("Manager Mode Unlocked! 🔓");
+                document.getElementById('pin-modal').classList.add('hidden');
+                renderBank();
+            } else {
+                showToast("Incorrect PIN", true);
+                input.value = '';
+            }
+        };
+
+        window.closePinModal = () => {
+            document.getElementById('pin-modal').classList.add('hidden');
+        };
+        
+        // 1. ACTIVE ROTATION LISTENER
+        function startRotationListener() {
+            if(!db) return;
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'rotation', 'list');
+            rotationUnsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists() && docSnap.data().songs) {
+                    const cloudSongs = docSnap.data().songs;
+                    if(Array.isArray(cloudSongs)) {
+                        activeRotationList = cloudSongs.sort();
+                        window.activeRotationList = activeRotationList; 
+                        
+                        if (currentTab !== 'database' && currentTab !== 'live') renderBank(); 
+                        if (currentTab === 'database') renderBank();
+                    }
+                } else {
+                    console.log("Initializing Cloud Rotation...");
+                    setDoc(docRef, { songs: rawBankData.sort(), lastUpdated: Date.now() });
+                }
+            });
+        }
+
+        // 2. ADD TO ROTATION
+        window.addToRotation = async (songName) => {
+            if(!db) return;
+            if(!window.managerMode) return showToast("Unlock Manager Mode to edit rotation.", true);
+
+            const currentList = window.activeRotationList || activeRotationList;
+            
+            if (!currentList.includes(songName)) {
+                const newList = [...currentList, songName].sort();
+                try {
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'rotation', 'list');
+                    await setDoc(docRef, { songs: newList, lastUpdated: Date.now() });
+                    showToast("Added to Cloud Rotation");
+                } catch(e) { console.error(e); showToast("Error saving to cloud", true); }
+            } else {
+                showToast("Song already in rotation");
+            }
+        };
+
+        // 3. REMOVE FROM ROTATION (NEW)
+        window.removeFromRotation = async (songName) => {
+            if(!db) return;
+            if(!window.managerMode) return showToast("Unlock Manager Mode to edit rotation.", true);
+            
+            if(!confirm(`Remove "${songName}" from Active Rotation?`)) return;
+
+            const currentList = window.activeRotationList || activeRotationList;
+            const newList = currentList.filter(s => s !== songName).sort();
+            
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'rotation', 'list');
+                await setDoc(docRef, { songs: newList, lastUpdated: Date.now() });
+                showToast("Removed from Cloud Rotation");
+            } catch(e) { console.error(e); showToast("Error saving to cloud", true); }
+        };
+
+        // 4. COLLABORATION LISTENER
+        function startCollaborationListener() {
+            if (!db) return;
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'collaboration', 'sets');
+            collaborationUnsubscribe = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data && data.sets) {
+                        try {
+                            const parsed = typeof data.sets === 'string' ? JSON.parse(data.sets) : data.sets;
+                            if (Array.isArray(parsed) && parsed.length === 4) {
+                                setCollections.collaborate = parsed.map(s => Array.isArray(s) ? s : []);
+                                if (currentTab === 'collaborate') render();
+                            } else {
+                                setCollections.collaborate = [[],[],[],[]];
+                                if (currentTab === 'collaborate') render();
+                            }
+                        } catch(e) { 
+                            console.error("Parse error", e); 
+                            setCollections.collaborate = [[],[],[],[]];
+                        }
+                    }
+                } else {
+                    console.log("Initializing Collaboration Doc...");
+                    setCollections.collaborate = [[],[],[],[]]; 
+                    window.updateCollaboration();
+                }
+            });
+        }
+
+        window.updateCollaboration = async () => {
+             if (!db) return;
+             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'collaboration', 'sets');
+             try {
+                 if(!setCollections.collaborate || setCollections.collaborate.length !== 4) {
+                     setCollections.collaborate = [[],[],[],[]];
+                 }
+                 await setDoc(docRef, { 
+                     sets: JSON.stringify(setCollections.collaborate), 
+                     lastUpdated: Date.now() 
+                 }, { merge: true });
+                 console.log("Collaboration synced");
+             } catch (e) {
+                 console.error("Sync error", e);
+             }
+        };
+
         window.saveRequestToSet = (song, artist, requestId) => {
             const targetSetIndex = 3; 
             const songTitle = artist ? `${song} (${artist})` : song;
-            setCollections.custom[targetSetIndex].push({title: songTitle, durationStr: "0:00"});
-            localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
-            switchTab('custom');
-            deleteRequest(requestId);
-            showToast(`"${songTitle}" saved to Set 4 and cleared from queue!`);
+            if(window.setCollections) {
+                if(currentTab === 'collaborate') {
+                     if (!window.setCollections.collaborate[targetSetIndex]) window.setCollections.collaborate[targetSetIndex] = [];
+                     window.setCollections.collaborate[targetSetIndex].push({title: songTitle, durationStr: "0:00"});
+                     window.updateCollaboration();
+                } else {
+                     window.setCollections.custom[targetSetIndex].push({title: songTitle, durationStr: "0:00"});
+                     localStorage.setItem('myCustomSets', JSON.stringify(window.setCollections.custom));
+                     if(window.switchTab) window.switchTab('custom');
+                }
+                deleteRequest(requestId);
+                showToast(`Saved to Set 4!`);
+            }
         }
 
-        // --- GLOBAL EXPORTS ---
+        window.renderIncomingRequests = (requests) => {
+            const list = document.getElementById('requests-list');
+            if(!list) return;
+            const liveBadge = document.querySelector('#live-controls .bg-red-500');
+            if(liveBadge) liveBadge.textContent = requests.length > 0 ? `${requests.length} New` : 'Live';
+
+            if(requests.length === 0) {
+                list.innerHTML = `<div class="text-center text-gray-500 py-10 italic">No requests yet.</div>`;
+            } else {
+                list.innerHTML = requests.map(r => {
+                    const originTag = r.source === 'bank' ? `<span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full mr-2">Bank</span>` : `<span class="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full mr-2">New</span>`;
+                    const voteBadge = r.votes > 1 ? `<span class="bg-green-600 text-white text-xs px-2 py-1 rounded-full font-bold ml-2">${r.votes} Votes</span>` : '';
+                    return `
+                        <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-start border border-gray-600 animate-fade-in">
+                            <div><div class="font-bold text-white flex items-center">${r.song}${voteBadge}</div><div class="mt-2 text-xs text-gray-500 flex items-center">${originTag} <span class="text-pink-300 ml-2">${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div></div>
+                            <div class="flex flex-col gap-1"><button onclick="window.saveRequestToSet('${r.song.replace(/'/g, "\\'")}', '', '${r.id}')" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded">Save</button><button onclick="window.deleteRequest('${r.id}')" class="text-xs bg-gray-600 hover:bg-red-500 text-white px-2 py-1 rounded">Clear</button></div>
+                        </div>`;
+                }).join('');
+            }
+        };
+        
         window.deleteRequest = deleteRequest;
         window.clearAllRequests = clearAllRequests;
-        window.saveRequestToSet = window.saveRequestToSet; 
     </script>
 
     <style>
@@ -281,109 +517,69 @@
         ::-webkit-scrollbar-track { background: #1f2937; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        
         .sortable-ghost { opacity: 0.4; background: #374151; }
-        .sortable-drag { cursor: grabbing; }
-        .drag-handle { cursor: grab; }
-        .drag-handle:active { cursor: grabbing; }
-        
+        .drag-handle { 
+            cursor: grab; 
+            padding: 10px 16px; /* Greatly increased touch target */
+            font-size: 1.4rem;
+            touch-action: none; /* Prevent scroll on handle */
+        }
+        .drag-handle:active { cursor: grabbing; color: #818cf8; }
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
-
-        .audience-song-button {
-            transition: background-color 0.1s, transform 0.1s;
-        }
-        .audience-song-button:active {
-            transform: scale(0.98);
-        }
-        
-        /* Time Display Removal CSS */
-        #grand-total-time, .duration-input, .set-time-badge, .set-header-time-container {
-            display: none !important;
-        }
-        
-        /* Spinner CSS */
-        .spinner {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 5px;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; margin-right: 5px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .audience-song-button:active { transform: scale(0.98); }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white pb-20">
 
-    <!-- HIDDEN TEMPLATE FOR REUSABLE SET CONTROLS (THE ICON FIX) -->
-    <template id="set-control-template">
-        <div class="flex items-center gap-3">
-            <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm set-time-badge" style="display: none;">0:00</span>
-            <div class="flex gap-1 no-print">
-                <!-- COPY BUTTON HOOK -->
-                
-                <button class="set-image-download-btn text-gray-400 hover:text-white p-1 text-xl leading-none" title="Save Image">
-                    &#x1F4F8;
-                </button>
-            </div>
-        </div>
-    </template>
-    
-    <!-- === BAND INTERFACE (Set List Creator) === -->
+    <!-- === BAND INTERFACE === -->
     <div id="band-interface" class="container mx-auto max-w-6xl p-4 md:p-8">
         
         <!-- Header -->
-        <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-end border-b border-gray-700 pb-4 gap-4">
-            <div class="text-left">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Set List Creator 2.8.2 (Play Some Neil)</h1>
-                <div class="flex flex-col md:flex-row gap-4 mt-2">
-                    <p class="text-gray-400 text-sm mt-1">4 Sets</p>
-                    
-                    <!-- Singer Legend -->
+        <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
+            <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 2.9.8</h1>
+                <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
+                <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
+                    <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
                     <div class="flex gap-2 items-center text-xs font-bold bg-gray-800 px-3 py-1 rounded-full border border-gray-700">
                         <span class="text-gray-500 uppercase tracking-wide mr-1">Vocals:</span>
                         <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> <span class="text-green-400">Darren</span></div>
                         <div class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-blue-500"></span> <span class="text-blue-400">Jeff</span></div>
                         <div class="flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-pink-500"></span> <span class="text-pink-400">Melissa</span></div>
                     </div>
-                    
                     <div id="firebase-status" class="text-xs font-mono border border-gray-700 rounded px-2 py-0.5 flex items-center text-gray-500">● Offline</div>
                 </div>
             </div>
-            <div class="flex gap-3 no-print items-center flex-wrap justify-end">
-                <button onclick="activateTwoStep()" class="bg-red-600 hover:bg-red-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-red-500 shadow-lg shadow-red-900/20 font-bold animate-pulse hover:animate-none">🚨 Two Step</button>
-                <button onclick="activate50s()" class="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-teal-500 shadow-lg shadow-teal-900/20 font-bold animate-pulse hover:animate-none">🎸 50s</button>
-                <button onclick="activatePopHits()" class="bg-pink-600 hover:bg-pink-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-pink-500 shadow-lg shadow-pink-900/20 font-bold animate-pulse hover:animate-none">🎤 Pop</button>
-                <button onclick="activateDance()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg transition text-xs md:text-sm flex items-center gap-2 border border-blue-500 shadow-lg shadow-blue-900/20 font-bold animate-pulse hover:animate-none">🕺 Dance</button>
-                <div class="w-px h-8 bg-gray-700 mx-2 hidden md:block"></div>
-                <button onclick="downloadAllImage()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg transition text-sm flex items-center gap-2 border border-indigo-500 shadow-lg">
-                    <span class="text-xl leading-none mr-1">&#x1F4F8;</span>
-                    Save Image
+            
+            <div class="flex gap-2 no-print items-center flex-wrap justify-end">
+                <button onclick="downloadAllImage()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-xs font-bold transition shadow-lg flex items-center gap-1">
+                    <span>📷</span> Save Img
                 </button>
             </div>
         </header>
 
         <!-- Tabs -->
         <div class="mb-6 flex space-x-1 bg-gray-800 p-1 rounded-xl no-print tab-nav overflow-x-auto">
-            <button onclick="switchTab('christmas')" id="tab-christmas" class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none text-white bg-gray-700 shadow whitespace-nowrap">Christmas Party</button>
+            <button onclick="switchTab('current')" id="tab-current" class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none text-white bg-gray-700 shadow whitespace-nowrap">Current Sets</button>
+            <button onclick="switchTab('live')" id="tab-live" class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-yellow-400 hover:text-white hover:bg-gray-750 border border-yellow-900/30 whitespace-nowrap flex items-center justify-center gap-2"><span class="animate-pulse">●</span> Live Mode</button>
             <button onclick="switchTab('custom')" id="tab-custom" class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none text-gray-400 hover:text-white hover:bg-gray-750 whitespace-nowrap">Create Your Own</button>
+            <button onclick="switchTab('collaborate')" id="tab-collaborate" class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-purple-400 hover:text-white hover:bg-gray-750 border border-purple-900/30 whitespace-nowrap flex items-center justify-center gap-2">👥 Collaborate</button>
             <button onclick="switchTab('originals')" id="tab-originals" class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none text-gray-400 hover:text-white hover:bg-gray-750 whitespace-nowrap">Originals</button>
-            
-            <!-- Hidden Emergency Tabs -->
-            <button onclick="switchTab('twostep')" id="tab-twostep" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-red-400 hover:text-white hover:bg-gray-750 border border-red-900/30 whitespace-nowrap">🚨 Two Step</button>
-            <button onclick="switchTab('fifties')" id="tab-fifties" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-teal-400 hover:text-white hover:bg-gray-750 border border-teal-900/30 whitespace-nowrap">🎸 50s</button>
-            <button onclick="switchTab('pophits')" id="tab-pophits" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-pink-400 hover:text-white hover:bg-gray-750 border border-pink-900/30 whitespace-nowrap">🎤 Pop Hits</button>
-            <button onclick="switchTab('dance')" id="tab-dance" class="hidden flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-blue-400 hover:text-white hover:bg-gray-750 border border-blue-900/30 whitespace-nowrap">🕺 Dance Hits</button>
-            
-            <!-- NEW LIVE TAB -->
-            <button onclick="switchTab('live')" id="tab-live" class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition focus:outline-none text-yellow-400 hover:text-white hover:bg-gray-750 border border-yellow-900/30 whitespace-nowrap flex items-center justify-center gap-2">
-                <span class="animate-pulse">●</span> Live Mode
-            </button>
+            <button onclick="switchTab('database')" id="tab-database" class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none text-gray-400 hover:text-white hover:bg-gray-750 whitespace-nowrap border-l border-gray-600 ml-2 pl-6">📚 Database (800+)</button>
+        </div>
+
+        <!-- Collaborate Header Info -->
+        <div id="collaborate-info" class="hidden mb-6 bg-purple-900/20 border border-purple-700/50 p-4 rounded-xl flex items-center justify-between">
+            <div class="text-purple-300 text-sm">
+                <span class="font-bold">Live Sync Active:</span> Changes made here update instantly for all band members.
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="window.clearAll()" class="text-xs bg-purple-800 hover:bg-purple-700 text-white px-2 py-1 rounded border border-purple-600">Clear All</button>
+                <div class="text-xs text-purple-400 animate-pulse">● Syncing</div>
+            </div>
         </div>
 
         <!-- Custom Controls -->
@@ -402,34 +598,24 @@
         <!-- LIVE CONTROLS -->
         <div id="live-controls" class="no-print mb-6 hidden animate-fade-in">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- QR Code Area -->
                 <div class="bg-gray-800 p-6 rounded-xl border border-yellow-500/30 shadow-lg shadow-yellow-900/10 flex flex-col items-center justify-center text-center">
                     <h3 class="text-yellow-400 font-bold text-lg mb-2">Audience Access</h3>
-                    <div class="bg-white p-4 rounded-lg mb-4">
-                        <div id="qrcode"></div>
-                    </div>
+                    <div class="bg-white p-4 rounded-lg mb-4"><div id="qrcode"></div></div>
                     <p class="text-gray-400 text-xs">Scan to Request Songs</p>
                 </div>
-                
-                <!-- Incoming Requests Area -->
                 <div class="md:col-span-2 bg-gray-800 p-6 rounded-xl border border-gray-700 flex flex-col h-[400px]">
                     <div class="flex justify-between items-center mb-4 pb-2 border-b border-gray-700">
-                        <h3 class="font-bold text-white flex items-center gap-2">
-                            Incoming Requests <span class="bg-red-500 text-white text-[10px] px-2 rounded-full animate-pulse">Live</span>
-                        </h3>
+                        <h3 class="font-bold text-white flex items-center gap-2">Incoming Requests <span class="bg-red-500 text-white text-[10px] px-2 rounded-full animate-pulse">Live</span></h3>
                         <button onclick="window.clearAllRequests()" class="text-xs text-gray-500 hover:text-red-400 transition-colors font-bold">Clear ALL Requests (Permanent)</button>
                     </div>
-                    <div id="requests-list" class="flex-grow overflow-y-auto space-y-2">
-                        <div class="text-center text-gray-500 py-10 italic">Waiting for audience requests...</div>
-                    </div>
+                    <div id="requests-list" class="flex-grow overflow-y-auto space-y-2"><div class="text-center text-gray-500 py-10 italic">Waiting for audience requests...</div></div>
                 </div>
             </div>
         </div>
 
         <!-- Sets Grid -->
         <div id="sets-capture-area" class="p-2 -m-2 bg-gray-900">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-                <!-- Sets 1-4 generated by JS -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-12">
                 <div id="set-container-0" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 1</h2></div><ul id="list-set-0" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
                 <div id="set-container-1" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 2</h2></div><ul id="list-set-1" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
                 <div id="set-container-2" class="set-container bg-gray-800 rounded-xl shadow-xl overflow-hidden border border-gray-700 flex flex-col"><div class="p-4 bg-gray-800 border-b border-gray-700"><h2 class="text-xl font-bold text-green-400">Set 3</h2></div><ul id="list-set-2" class="divide-y divide-gray-700 overflow-y-auto max-h-[600px] flex-grow min-h-[50px]"></ul></div>
@@ -437,17 +623,13 @@
             </div>
         </div>
         
-        <!-- Song Input (Moved Below Sets) -->
+        <!-- Song Input -->
         <div id="input-section" class="no-print bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 mb-8">
             <h3 class="text-sm uppercase tracking-wide text-gray-400 font-bold mb-4 border-b border-gray-700 pb-2">Add New / Custom Song</h3>
-            <form id="add-song-form" class="flex flex-col md:flex-row gap-4 items-end">
+            <form id="add-song-form" class="flex flex-col md:flex-row gap-4 items-end" onsubmit="event.preventDefault(); addNewSong();">
                 <div class="flex-grow w-full">
                     <label class="block text-xs uppercase tracking-wide text-gray-500 font-bold mb-2">Song Title & Artist</label>
                     <input type="text" id="song-title" class="w-full bg-gray-900 text-white border border-gray-600 rounded-lg py-3 px-4 focus:outline-none focus:border-indigo-500 transition" placeholder="e.g. White Christmas" required>
-                </div>
-                <div class="w-full md:w-32 set-time-input-container" style="display: none;">
-                    <label class="block text-xs uppercase tracking-wide text-gray-500 font-bold mb-2">Time (Removed)</label>
-                    <input type="text" id="song-duration" class="w-full bg-gray-900 text-white border border-gray-600 rounded-lg py-3 px-4 focus:outline-none focus:border-indigo-500 transition text-center" placeholder="3:30">
                 </div>
                 <div class="w-full md:w-40">
                     <label class="block text-xs uppercase tracking-wide text-gray-500 font-bold mb-2">Add To</label>
@@ -463,12 +645,22 @@
         </div>
 
         <!-- Master Song Bank -->
-        <div id="song-bank-section" class="no-print bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+        <div id="song-bank-section" class="no-print bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden hidden">
             <div class="p-6 bg-gray-800 border-b border-gray-700 flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 class="text-2xl font-bold text-indigo-400">Master Song Bank</h2>
-                <input type="text" id="bank-search" oninput="renderBank()" class="w-full md:w-64 bg-gray-900 text-white border border-gray-600 rounded-full py-2 px-4 focus:outline-none focus:border-indigo-500 text-sm" placeholder="Search song bank...">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-2xl font-bold text-indigo-400" id="bank-title">Active Rotation</h2>
+                    <!-- MANAGER LOCK -->
+                    <button onclick="toggleManagerMode()" class="text-gray-500 hover:text-white text-lg transition-colors" title="Manager Access">
+                        <span id="manager-lock-icon">🔒</span>
+                    </button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="bank-loading" class="text-xs text-yellow-400 hidden animate-pulse">Syncing...</span>
+                    <input type="text" id="bank-search" oninput="renderBank()" class="w-full md:w-64 bg-gray-900 text-white border border-gray-600 rounded-full py-2 px-4 focus:outline-none focus:border-indigo-500 text-sm" placeholder="Search...">
+                </div>
             </div>
             <div class="p-6 bg-gray-850">
+                <p class="text-gray-400 text-xs mb-4">Click numbered buttons to add songs to specific sets.</p>
                 <div id="bank-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
             </div>
         </div>
@@ -479,204 +671,167 @@
         </div>
     </div>
 
-    <!-- === AUDIENCE INTERFACE (Hidden by default, shown via URL param) === -->
-    <div id="audience-interface" class="hidden min-h-screen bg-gray-900 p-6 flex flex-col items-center justify-center">
-        <div class="max-w-md w-full space-y-8 text-center">
-            <div>
-                <h2 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500">
-                    Live Requests
-                </h2>
-                <p class="mt-2 text-gray-400">Tell the band what you want to hear!</p>
-            </div>
-            
-            <div class="bg-gray-800 p-6 rounded-2xl shadow-xl border border-gray-700">
-                
-                <h3 class="font-bold text-yellow-400 mb-3 text-left">Choose from our Song Bank:</h3>
-                <div class="relative mb-6">
-                    <!-- Removed search bar per request 6 -->
-                    
-                    <div id="audience-bank-list" class="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border border-gray-700 p-2 rounded-lg bg-gray-900">
-                        <!-- Song buttons rendered here -->
-                    </div>
-                </div>
-
-                <div class="text-gray-500 uppercase text-xs font-bold mb-4">OR</div>
-
-                <h3 class="font-bold text-white mb-3 text-left">Request a New Song:</h3>
-                <input id="audience-new-song" type="text" placeholder="Song Name (if not in bank)" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-3 focus:border-pink-500 outline-none">
-                <input id="audience-artist" type="text" placeholder="Artist (Optional)" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-4 focus:border-pink-500 outline-none">
-                
-                <button id="btn-submit-new" onclick="submitNewRequest()" class="w-full bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg transition transform active:scale-95 flex justify-center items-center">
-                    Send Request 🚀
-                </button>
-            </div>
-
-            <div id="request-success" class="hidden text-green-400 font-bold bg-green-900/30 p-4 rounded-lg">
-                Request Sent!
+    <!-- PIN Modal -->
+    <div id="pin-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center backdrop-blur-sm p-4">
+        <div class="bg-gray-800 p-6 rounded-xl border border-gray-600 shadow-2xl w-full max-w-xs text-center">
+            <h3 class="text-xl font-bold text-white mb-4">Manager Access</h3>
+            <input type="password" id="manager-pin-input" class="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white mb-4 text-center tracking-widest text-xl focus:border-indigo-500 outline-none" placeholder="Enter PIN" maxlength="4">
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="checkManagerPin()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg">Unlock</button>
+                <button onclick="closePinModal()" class="bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold py-2 rounded-lg">Cancel</button>
             </div>
         </div>
     </div>
 
-    <!-- Toast & Hidden Elements -->
-    <div id="toast" class="fixed bottom-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 z-50">
-        <span id="toast-message">Action successful</span>
-    </div>
-
-    <!-- Modal: Copy Set -->
-    <div id="copy-modal" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center backdrop-blur-sm">
-        <div class="bg-gray-800 p-6 rounded-xl border border-gray-600 shadow-2xl w-full max-w-sm">
-            <h3 class="text-xl font-bold text-white mb-2">Copy Set to "Create Your Own"</h3>
-            <div class="grid grid-cols-2 gap-3 mb-4">
-                <button onclick="executeCopy(0)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 1</button>
-                <button onclick="executeCopy(1)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 2</button>
-                <button onclick="executeCopy(2)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 3</button>
-                <button onclick="executeCopy(3)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 4</button>
-            </div>
-            <button onclick="document.getElementById('copy-modal').classList.add('hidden')" class="w-full text-gray-500 hover:text-gray-300 py-2 text-sm">Cancel</button>
-        </div>
-    </div>
+    <!-- Toast & Copy Modal -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-xl transform translate-y-20 opacity-0 transition-all duration-300 z-50"><span id="toast-message">Action successful</span></div>
+    
+    <div id="copy-modal" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center backdrop-blur-sm"><div class="bg-gray-800 p-6 rounded-xl border border-gray-600 shadow-2xl w-full max-w-sm"><h3 class="text-xl font-bold text-white mb-2">Copy Set to "Create Your Own"</h3><div class="grid grid-cols-2 gap-3 mb-4"><button onclick="executeCopy(0)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 1</button><button onclick="executeCopy(1)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 2</button><button onclick="executeCopy(2)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 3</button><button onclick="executeCopy(3)" class="bg-gray-700 hover:bg-indigo-600 hover:text-white p-3 rounded-lg border border-gray-600">Set 4</button></div><button onclick="document.getElementById('copy-modal').classList.add('hidden')" class="w-full text-gray-500 hover:text-gray-300 py-2 text-sm">Cancel</button></div></div>
 
     <script>
-        // --- DATA SECTION ---
-        // Helper function to create song objects safely
-        const createSongObject = (title, durationStr = "0:00") => ({ title, durationStr });
-        
-        // Helper function to filter a list against the Master Bank (MOVED GLOBALLY)
-        window.filterSongsAgainstMasterBank = (songList) => {
-            const masterTitles = new Set(masterBank.map(s => s.toLowerCase()));
-            const inBank = [];
-            const notInBank = [];
+        // --- DATA SOURCE CONFIG ---
+        const MASTER_DB_URL = "https://raw.githubusercontent.com/Maltais239/interactives/main/master_song_database_cleaned.json";
 
-            songList.forEach(song => {
-                if (masterTitles.has(song.title.toLowerCase())) {
-                    inBank.push(song);
+        // --- HELPER FUNCTION: DEFINED FIRST TO AVOID REFERENCE ERRORS ---
+        const createSongObject = (title, durationStr = "0:00") => ({ title, durationStr });
+
+        // --- SONG METADATA (Internal Fallback + Key Info) ---
+        const songMetadata = {
+            "5 Days In May": { k: "Em", c: "" }, "50 Ways To Leave Your Lover": { k: "Em", c: "" }, "54 46 Was My Number": { k: "G", c: "" }, "6th Avenue Heartache": { k: "G", c: "" }, 
+            "Zombie": { k: "Em", c: "" }
+        };
+
+        window.getSongMetadata = (titleStr) => {
+            if (songMetadata[titleStr]) return songMetadata[titleStr];
+            const lower = titleStr.toLowerCase();
+            const foundKey = Object.keys(songMetadata).find(k => k.toLowerCase() === lower);
+            if (foundKey) return songMetadata[foundKey];
+            const subKey = Object.keys(songMetadata).find(k => k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase()));
+            if (subKey) return songMetadata[subKey];
+            return null;
+        };
+
+        // --- INTERNAL BACKUP DATA (For Holiday & Fallback) ---
+        // This is the specific 2.8.5 list the user wanted back as "Active Rotation"
+        const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead By A Century (Tragically Hip)", "All Apologies (Nirvana)", "American Girl (Tom Petty)", "Another Road Home (Jeff McLellan)", "Back To Black (Amy Winehouse)", "Beautiful things (Darren Maltais)", "Before Our Graves (Jeff McLellan)", "Big River (Johnny Cash)", "Blank Space (Ryan Adams)", "Blindman River (Melissa Majeau)", "Blister In The Sun (Violent Femmes)", "Blitzkrieg Bop (The Ramones)", "Blow At High Dough (Tragically Hip)", "Blue Christmas (Elvis Presley)", "Bobcaygeon (Tragically Hip)", "Bottom Feeders (Melissa Majeau)", "Brown Eyed Girl (Van Morrison)", "Cadillac Ranch (Nitty Gritty Dirt Band)", "Can't Let Go (Lucinda Williams)", "Christmas (Baby Please Come Home) (Darlene Love)", "Cleopatra (The Lumineers)", "Colors (Black Pumas)", "Copperhead Road (Steve Earle)", "Creep (Radiohead)", "Cry Me A River (Justin Timberlake)", "Dancing In The Dark (Bruce Springsteen)", "Day Tripper (The Beatles)", "Don't Want to Wait (Darren Maltais)", "Dont Walk Away Eileen (Sam Roberts)", "Dreams (Fleetwood Mac)", "Driving My Life Away (Eddie Rabbitt)", "Faith (Wham)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Five Dollar Bill (Corb Lund)", "Flowers (Miley Cyrus)", "Flowers In Your Hair (The Lumineers)", "Folsom Prison Blues (Johnny Cash)", "Friends in Low Places (Garth Brooks)", "Get Back (The Beatles)", "Green River (CCR)", "Guitar Town (Steve Earle)", "Hand it over (Darren Maltais)", "Harvest Moon (Neil Young)", "Heart of Glass (Blondie)", "Hungry Like The Wolf (Duran Duran)", "I Need Never Get Old (Nathaniel Rateliff)", "I Shot To Sheriff (Bob Marley)", "I Walk The Line (Johnny Cash)", "I Wonder (Darren Maltais)", "I'm On Fire (Bruce Springsteen)", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun (Weezer)", "It Takes a Lot to Laugh (Bob Dylan)", "Jambalaya (Hank Williams Sr.)", "Jingle Bell Rock (Bobby Helms)", "Johnny B. Goode (Chuck Berry)", "Jolene (Dolly Parton)", "Just Another Number (Darren Maltais)", "King Of The Road (Dean Martin/Roger Miller)", "Layla (Derek and the Dominos)", "Life Of Sin (Sturgill Simpson)", "Little Bones (Tragically Hip)", "Little Lion Man (Mumford & Sons)", "Lonesome Grave (Darren Maltais)", "Long Ride (Melissa Majeau)", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider (Allman Brothers Band)", "My Babe (Willie Dixon / Little Walter)", "No Bright Light (Darren Maltais)", "No Denial (Melissa Majeau)", "No Diggity (Blackstreet)", "Norwegian Wood (The Beatles)", "Oh Boy (Buddy Holly)", "Paper Planes (M.I.A.)", "Paranoid (Black Sabbath)", "Pride And Joy (Stevie Ray Vaughan)", "REAL LOVE BABY (Father John Misty)", "Rhiannon (Fleetwood Mac)", "Ring of Fire (Johnny Cash)", "Rocket Man (Elton John)", "Runaround Sue (Dion)", "Santa Bring My Baby Back To Me (Elvis)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "Seven Nation Army (The White Stripes)", "S.O.B. (Nathaniel Rateliff)", "Something In The Orange (Zach Bryan)", "Spark (Darren Maltais)", "Steal My Kisses (Ben Harper)", "Still Falling (Jeff McLellan)", "Sugar Daddy (Melissa Majeau)", "Tennessee Whiskey (Chris Stapleton)", "That's All Right Mama (Elvis Presley)", "The Thrill Is Gone (BB King)", "Those Days (Darren Maltais)", "Tonight in Black and White (Jeff McLellan)", "Twist and Shout (The Beatles)", "Wagon Wheel (Old Crow Medicine Show)", "What'd I Say (Ray Charles)", "You Can't Judge A Book By The Cover (Bo Diddley)", "You Wreck Me (Tom Petty)", "Zombie (The Cranberries)"];
+        const christmasSongs = ["Baby Its Cold Outside", "Blue Christmas", "Christmas (Baby Please Come Home)", "CHRISTMAS ALL OVER AGAIN CHORDS", "Fairytale of New York...", "Happy Xmas War Is Over", "Here Comes Santa Claus", "Holly Jolly Christmas", "Ill Be Home For Christmas", "It's Beginning To Look A Lot Like Christmas", "It's The Most Wonderful Time Of The Year", "Jingle Bell Rock", "Jingle Bells", "Last Christmas", "Let It Snow", "Marshmallow World", "Mele Kalikimaka", "Rocking Around The Christmas Tree", "Rudolph The Red-Nosed Reindeer", "Run Rudolph Run", "Santa Bring My Baby Back To Me", "Santa Claus Is Coming To Town", "Silent Night", "Silver Bells", "Sleigh Ride", "White Christmas", "Winter Wonderland"];
+
+        // --- STATE & INITIALIZATION ---
+        // 1. Load Rotation from LocalStorage OR use Default RawBankData
+        let savedRotation = localStorage.getItem('myActiveRotation');
+        let activeRotationList = savedRotation ? JSON.parse(savedRotation) : rawBankData.sort();
+        
+        let fullSongDatabase = []; // Will be fetched (800+)
+        let holidayBank = rawBankData.filter(s => christmasSongs.some(c => s.toLowerCase().includes(c.toLowerCase()))).sort();
+        let fullDatabaseKeys = Object.keys(songMetadata).sort(); // For quick validation
+
+        // CACHING LOGIC
+        const CACHE_KEY = 'song_db_cache';
+        const CACHE_TIME_KEY = 'song_db_time';
+        const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 Hours
+
+        async function initDatabase() {
+            const loading = document.getElementById('bank-loading');
+            if(loading) loading.classList.remove('hidden');
+            
+            // Check cache for 800+ DB
+            const cachedData = localStorage.getItem(CACHE_KEY);
+            const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
+            const isCacheValid = cachedTime && (Date.now() - parseInt(cachedTime) < CACHE_DURATION);
+
+            if (cachedData && isCacheValid) {
+                console.log("Loading DB from Local Cache");
+                fullSongDatabase = JSON.parse(cachedData).sort();
+                updateFullDB();
+                finishInit(loading);
+                return;
+            }
+
+            console.log("Fetching DB from GitHub...");
+            try {
+                const response = await fetch(MASTER_DB_URL);
+                if(response.ok) {
+                    const fetchedList = await response.json();
+                    if(Array.isArray(fetchedList) && fetchedList.length > 0) {
+                        fullSongDatabase = fetchedList.sort();
+                        // Update Cache
+                        localStorage.setItem(CACHE_KEY, JSON.stringify(fullSongDatabase));
+                        localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+                        updateFullDB();
+                        console.log(`Loaded ${fullSongDatabase.length} songs from external DB.`);
+                    }
                 } else {
-                    notInBank.push(song);
+                    throw new Error("Fetch failed");
                 }
-            });
-            return { inBank, notInBank };
+            } catch(e) {
+                console.warn("Could not fetch external DB.", e);
+            } finally {
+                finishInit(loading);
+            }
         }
 
+        function updateFullDB() {
+            fullDatabaseKeys = [...new Set([...fullDatabaseKeys, ...fullSongDatabase])].sort();
+            window.fullDatabase = fullDatabaseKeys; // Global for validation
+        }
 
-        const christmasData = [
-            ["Cleopatra (The Lumineers)", "Island In The Sun (Weezer)", "Ahead By A Century (Tragically Hip)", "Blue Christmas (Elvis Presley)", "Dont Walk Away Eileen (Sam Roberts)", "A Little Something (Melissa Majeau)", "Green River (CCR)", "Flowers (Miley Cyrus)", "Dancing In The Dark (Bruce Springsteen)", "Blow At High Dough (Tragically Hip)", "All Apologies (Nirvana)", "I Need Never Get Old (Nathaniel Rateliff)", "Santa Bring My Baby Back To Me (Elvis)", "Dreams (Fleetwood Mac)", "Folsom Prison Blues (Johnny Cash)", "My Babe (Willie Dixon / Little Walter)", "Harvest Moon (Neil Young)", "Jolene (Dolly Parton)", "Colors (Black Pumas)"].map(createSongObject),
-            ["Something In The Orange (Zach Bryan)", "Christmas (Baby Please Come Home) (Darlene Love)", "Don't Want to Wait (Darren Maltais)", "Layla (Derek and the Dominos)", "I'm On Fire (Bruce Springsteen)", "Those Days (Darren Maltais)", "Jingle Bell Rock (Bobby Helms)", "You Wreck Me (Tom Petty)", "Steal My Kisses (Ben Harper)", "Blank Space (Ryan Adams)", "Pride And Joy (Stevie Ray Vaughan)", "Tonight in Black and White (Jeff McLellan)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "REAL LOVE BABY (Father John Misty)", "Five Dollar Bill (Corb Lund)", "Cadillac Ranch (Nitty Gritty Dirt Band)", "American Girl (Tom Petty)", "Get Back (The Beatles)", "King Of The Road (Dean Martin/Roger Miller)", "Heart of Glass (Blondie)", "Johnny B. Goode (Chuck Berry)", "Rhiannon (Fleetwood Mac)", "No Bright Light (Darren Maltais)", "Blister In The Sun (Violent Femmes)"].map(createSongObject),
-            ["Cry Me A River (Justin Timberlake)", "Back To Black (Amy Winehouse)", "Can't Let Go (Lucinda Williams)", "No Diggity (Blackstreet)", "I Shot To Sheriff (Bob Marley)", "Hand it over (Darren Maltais)", "That's All Right Mama (Elvis Presley)", "Runaround Sue (Dion)", "Zombie (The Cranberries)", "You Can't Judge A Book By The Cover (Bo Diddley)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Paper Planes (M.I.A.)", "Blitzkrieg Bop (The Ramones)", "Day Tripper (The Beatles)", "Driving My Life Away (Eddie Rabbitt)", "Beautiful things (Darren Maltais)", "Blindman River (Melissa Majeau)", "Tennessee Whiskey (Chris Stapleton)", "Another Road Home (Jeff McLellan)", "Oh Boy (Buddy Holly)", "Life Of Sin (Sturgill Simpson)", "Hungry Like The Wolf (Duran Duran)"].map(createSongObject),
-            ["Paranoid (Black Sabbath)", "It Takes a Lot to Laugh (Bob Dylan)", "Flowers In Your Hair (The Lumineers)", "Faith (Wham)", "Still Falling (Jeff McLellan)", "Driving My Life Away (Reprise?)", "Norwegian Wood (The Beatles)", "Bottom Feeders (Melissa Majeau)", "Creep (Radiohead)", "S.O.B. (Nathaniel Rateliff)", "What'd I Say (Ray Charles)", "Long Ride (Melissa Majeau)", "The Thrill Is Gone (BB King)", "Rocket Man (Elton John)"].map(createSongObject)
-        ];
+        function finishInit(loadingEl) {
+            if(loadingEl) loadingEl.classList.add('hidden');
+            // Re-render bank if visible
+            if(currentTab === 'database' || currentTab !== 'live') renderBank();
+            
+            const audienceInterface = document.getElementById('audience-interface');
+            if(audienceInterface && !audienceInterface.classList.contains('hidden')) {
+                window.renderAudienceBankFallback();
+            }
+        }
+
+        // --- SET DATA ---
+        // Sets cleaned of holiday music for 2.9.3
+        const currentSetData = [
+            ["Cleopatra (The Lumineers)", "Island In The Sun (Weezer)", "Ahead By A Century (Tragically Hip)", "Dont Walk Away Eileen (Sam Roberts)", "A Little Something (Melissa Majeau)", "Green River (CCR)", "Flowers (Miley Cyrus)", "Dancing In The Dark (Bruce Springsteen)", "Blow At High Dough (Tragically Hip)", "All Apologies (Nirvana)", "I Need Never Get Old (Nathaniel Rateliff)", "Dreams (Fleetwood Mac)", "Folsom Prison Blues (Johnny Cash)", "My Babe (Willie Dixon / Little Walter)", "Harvest Moon (Neil Young)", "Jolene (Dolly Parton)", "Colors (Black Pumas)"], 
+            ["Something In The Orange (Zach Bryan)", "Don't Want to Wait (Darren Maltais)", "Layla (Derek and the Dominos)", "I'm On Fire (Bruce Springsteen)", "Those Days (Darren Maltais)", "You Wreck Me (Tom Petty)", "Steal My Kisses (Ben Harper)", "Blank Space (Ryan Adams)", "Pride And Joy (Stevie Ray Vaughan)", "Tonight in Black and White (Jeff McLellan)", "REAL LOVE BABY (Father John Misty)", "Five Dollar Bill (Corb Lund)", "Cadillac Ranch (Nitty Gritty Dirt Band)", "American Girl (Tom Petty)", "Get Back (The Beatles)", "King Of The Road (Dean Martin/Roger Miller)", "Heart of Glass (Blondie)", "Johnny B. Goode (Chuck Berry)", "Rhiannon (Fleetwood Mac)", "No Bright Light (Darren Maltais)", "Blister In The Sun (Violent Femmes)"], 
+            ["Cry Me A River (Justin Timberlake)", "Back To Black (Amy Winehouse)", "Can't Let Go (Lucinda Williams)", "No Diggity (Blackstreet)", "I Shot To Sheriff (Bob Marley)", "Hand it over (Darren Maltais)", "That's All Right Mama (Elvis Presley)", "Runaround Sue (Dion)", "Zombie (The Cranberries)", "You Can't Judge A Book By The Cover (Bo Diddley)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Paper Planes (M.I.A.)", "Blitzkrieg Bop (The Ramones)", "Day Tripper (The Beatles)", "Driving My Life Away (Eddie Rabbitt)", "Beautiful things (Darren Maltais)", "Blindman River (Melissa Majeau)", "Tennessee Whiskey (Chris Stapleton)", "Another Road Home (Jeff McLellan)", "Oh Boy (Buddy Holly)", "Life Of Sin (Sturgill Simpson)", "Hungry Like The Wolf (Duran Duran)"], 
+            ["Paranoid (Black Sabbath)", "It Takes a Lot to Laugh (Bob Dylan)", "Flowers In Your Hair (The Lumineers)", "Faith (Wham)", "Still Falling (Jeff McLellan)", "Driving My Life Away (Reprise?)", "Norwegian Wood (The Beatles)", "Bottom Feeders (Melissa Majeau)", "Creep (Radiohead)", "S.O.B. (Nathaniel Rateliff)", "What'd I Say (Ray Charles)", "Long Ride (Melissa Majeau)", "The Thrill Is Gone (BB King)", "Rocket Man (Elton John)"]
+        ].map(set => set.map(t => createSongObject(t)));
         
         const originalsData = [[],[],[],[]];
         const jeffSongs = ["Tonight in Black and White (Jeff McLellan)", "Still Fallin' (Jeff McLellan)", "Before Our Graves (Jeff McLellan)", "Another Road Home (Jeff McLellan)", "Havens to Hendrix (Jeff McLellan)", "Blindman River (Jeff McLellan)"];
         const melissaSongs = ["A Little Something (Melissa Majeau)", "Blindman River (Melissa Majeau)", "Bottom Feeders (Melissa Majeau)", "Long Ride (Melissa Majeau)", "No Denial (Melissa Majeau)", "Sugar Daddy (Melissa Majeau)"];
         const darrenSongs = ["Spark (Darren Maltais)", "No Bright Light (Darren Maltais)", "Hand it Over (Darren Maltais)", "Beautiful Things (Darren Maltais)", "Don't Want to Wait (Darren Maltais)", "A Simple Thing (Darren Maltais)", "Is Your Heart a Map (Darren Maltais)", "Just Another Number (Darren Maltais)", "Lonesome Grave (Darren Maltais)", "I Wonder (Darren Maltais)", "Memento (Darren Maltais)"];
-        originalsData[0] = jeffSongs.map(createSongObject);
-        originalsData[1] = melissaSongs.map(createSongObject);
-        originalsData[2] = darrenSongs.map(createSongObject);
+        originalsData[0] = jeffSongs.map(t => createSongObject(t)); originalsData[1] = melissaSongs.map(t => createSongObject(t)); originalsData[2] = darrenSongs.map(t => createSongObject(t));
 
-        // Emergency Data (Combined into Set 1 for UI simplicity)
-        const twostepSongs = [
-            "Folsom Prison Blues (Johnny Cash)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Driving My Life Away (Eddie Rabbitt)", 
-            "Cadillac Ranch (Nitty Gritty Dirt Band)", "Green River (CCR)", "Ring of Fire (Johnny Cash)", "I Walk The Line (Johnny Cash)", 
-            "Jambalaya (Hank Williams Sr.)", "Wagon Wheel (Old Crow Medicine Show)", "Five Dollar Bill (Corb Lund)", "Guitar Town (Steve Earle)", "Looking Out My Back Door", 
-            "Midnight Rider (Allman Brothers Band)", "That's All Right Mama (Elvis Presley)", "Copperhead Road (Steve Earle)", "Boot Scootin' Boogie", 
-            "Chattahoochee", "Friends in Low Places (Garth Brooks)", "I Shot To Sheriff (Bob Marley)" 
-        ];
-        const twoStepData = [twostepSongs.map(createSongObject), [], [], []];
-        
-        // FIX: 50s songs using correct master bank names
-        const fiftiesSongs = [
-            "Johnny B. Goode (Chuck Berry)", "Runaround Sue (Dion)", "That's All Right Mama (Elvis Presley)", "Oh Boy (Buddy Holly)", 
-            "You Can't Judge A Book By The Cover (Bo Diddley)", "My Babe (Willie Dixon / Little Walter)", 
-            "Blue Christmas (Elvis Presley)", "Blue Suede Shoes", "Great Balls of Fire", "Hound Dog", "La Bamba", "Twist and Shout (The Beatles)"
-        ];
-        const fiftiesData = [fiftiesSongs.map(createSongObject), [], [], []];
-        
-        // FIX: Pop Hits list validation
-        const popHitsSongs = [
-            "Flowers (Miley Cyrus)", "Blank Space (Ryan Adams)", "Seven Nation Army (The White Stripes)", 
-            "No Diggity (Blackstreet)", "Paper Planes (M.I.A.)", "Steal My Kisses (Ben Harper)", 
-            "Zombie (The Cranberries)"
-        ];
-        const popHitsData = [popHitsSongs.map(createSongObject), [], [], []];
-        
-        const danceSongs = ["Hungry Like The Wolf (Duran Duran)", "Heart of Glass (Blondie)", "Day Tripper (The Beatles)", "September", "I Feel Good (James Brown)", "Get Down Tonight (KC & The Sunshine Band)"];
-        const danceData = [danceSongs.map(createSongObject), [], [], []];
-
-        // State
         let customData = [[], [], [], []];
-        let currentTab = 'christmas'; 
+        if(localStorage.getItem('myCustomSets')) { try { customData = JSON.parse(localStorage.getItem('myCustomSets')); } catch(e) {} }
+
+        let currentTab = 'current'; 
         let setCollections = {
-            christmas: JSON.parse(JSON.stringify(christmasData)),
+            current: JSON.parse(JSON.stringify(currentSetData)),
             custom: customData,
             originals: JSON.parse(JSON.stringify(originalsData)),
-            twostep: JSON.parse(JSON.stringify(twoStepData)),
-            fifties: JSON.parse(JSON.stringify(fiftiesData)),
-            pophits: JSON.parse(JSON.stringify(popHitsData)),
-            dance: JSON.parse(JSON.stringify(danceData)), // New dance data
-            live: [[],[],[],[]] // Dummy for live tab
+            collaborate: [[],[],[],[]], // New Shared Data
+            live: [[],[],[],[]],
+            database: [[],[],[],[]] 
         };
+        window.setCollections = setCollections; 
         
         let sortables = [];
 
-        // Load custom data
-        if(localStorage.getItem('myCustomSets')) {
-            try { setCollections.custom = JSON.parse(localStorage.getItem('myCustomSets')); } catch(e) {}
-        }
-
-        // Master Bank
-        const rawBankData = ["A Little Something (Melissa Majeau)", "A Simple Thing (Darren Maltais)", "Ahead By A Century (Tragically Hip)", "All Apologies (Nirvana)", "American Girl (Tom Petty)", "Another Road Home (Jeff McLellan)", "Back To Black (Amy Winehouse)", "Beautiful things (Darren Maltais)", "Before Our Graves (Jeff McLellan)", "Big River (Johnny Cash)", "Blank Space (Ryan Adams)", "Blindman River (Melissa Majeau)", "Blister In The Sun (Violent Femmes)", "Blitzkrieg Bop (The Ramones)", "Blow At High Dough (Tragically Hip)", "Blue Christmas (Elvis Presley)", "Bobcaygeon (Tragically Hip)", "Bottom Feeders (Melissa Majeau)", "Brown Eyed Girl (Van Morrison)", "Cadillac Ranch (Nitty Gritty Dirt Band)", "Can't Let Go (Lucinda Williams)", "Christmas (Baby Please Come Home) (Darlene Love)", "Cleopatra (The Lumineers)", "Colors (Black Pumas)", "Copperhead Road (Steve Earle)", "Creep (Radiohead)", "Cry Me A River (Justin Timberlake)", "Dancing In The Dark (Bruce Springsteen)", "Day Tripper (The Beatles)", "Don't Want to Wait (Darren Maltais)", "Dont Walk Away Eileen (Sam Roberts)", "Dreams (Fleetwood Mac)", "Driving My Life Away (Eddie Rabbitt)", "Faith (Wham)", "Fishin' In The Dark (Nitty Gritty Dirt Band)", "Five Dollar Bill (Corb Lund)", "Flowers (Miley Cyrus)", "Flowers In Your Hair (The Lumineers)", "Folsom Prison Blues (Johnny Cash)", "Friends in Low Places (Garth Brooks)", "Get Back (The Beatles)", "Green River (CCR)", "Guitar Town (Steve Earle)", "Hand it over (Darren Maltais)", "Harvest Moon (Neil Young)", "Heart of Glass (Blondie)", "Hungry Like The Wolf (Duran Duran)", "I Need Never Get Old (Nathaniel Rateliff)", "I Shot To Sheriff (Bob Marley)", "I Walk The Line (Johnny Cash)", "I Wonder (Darren Maltais)", "I'm On Fire (Bruce Springsteen)", "Is Your Heart a Map (Darren Maltais)", "Island In The Sun (Weezer)", "It Takes a Lot to Laugh (Bob Dylan)", "Jambalaya (Hank Williams Sr.)", "Jingle Bell Rock (Bobby Helms)", "Johnny B. Goode (Chuck Berry)", "Jolene (Dolly Parton)", "Just Another Number (Darren Maltais)", "King Of The Road (Dean Martin/Roger Miller)", "Layla (Derek and the Dominos)", "Life Of Sin (Sturgill Simpson)", "Little Bones (Tragically Hip)", "Little Lion Man (Mumford & Sons)", "Lonesome Grave (Darren Maltais)", "Long Ride (Melissa Majeau)", "Looking Out My Back Door", "Memento (Darren Maltais)", "Midnight Rider (Allman Brothers Band)", "My Babe (Willie Dixon / Little Walter)", "No Bright Light (Darren Maltais)", "No Denial (Melissa Majeau)", "No Diggity (Blackstreet)", "Norwegian Wood (The Beatles)", "Oh Boy (Buddy Holly)", "Paper Planes (M.I.A.)", "Paranoid (Black Sabbath)", "Pride And Joy (Stevie Ray Vaughan)", "REAL LOVE BABY (Father John Misty)", "Rhiannon (Fleetwood Mac)", "Ring of Fire (Johnny Cash)", "Rocket Man (Elton John)", "Runaround Sue (Dion)", "Santa Bring My Baby Back To Me (Elvis)", "Santa Claus Is Coming To Town (Bruce Springsteen)", "Seven Nation Army (The White Stripes)", "S.O.B. (Nathaniel Rateliff)", "Something In The Orange (Zach Bryan)", "Spark (Darren Maltais)", "Steal My Kisses (Ben Harper)", "Still Falling (Jeff McLellan)", "Sugar Daddy (Melissa Majeau)", "Tennessee Whiskey (Chris Stapleton)", "That's All Right Mama (Elvis Presley)", "The Thrill Is Gone (BB King)", "Those Days (Darren Maltais)", "Tonight in Black and White (Jeff McLellan)", "Twist and Shout (The Beatles)", "Wagon Wheel (Old Crow Medicine Show)", "What'd I Say (Ray Charles)", "You Can't Judge A Book By The Cover (Bo Diddley)", "You Wreck Me (Tom Petty)", "Zombie (The Cranberries)"];
-        const masterBank = rawBankData.sort();
-
-        // Helper function to filter a list against the Master Bank
         function filterSongsAgainstMasterBank(songList) {
-            const masterTitles = new Set(masterBank.map(s => s.toLowerCase()));
-            const inBank = [];
-            const notInBank = [];
-
-            songList.forEach(song => {
-                if (masterTitles.has(song.title.toLowerCase())) {
-                    inBank.push(song);
-                } else {
-                    notInBank.push(song);
-                }
-            });
-            return { inBank, notInBank };
+            // Using activeRotationList for filtering in main view
+            const masterTitles = new Set(activeRotationList.map(s => s.toLowerCase()));
+            return {
+                inBank: songList.filter(s => masterTitles.has(s.title.toLowerCase())),
+                notInBank: songList.filter(s => !masterTitles.has(s.title.toLowerCase()))
+            };
         }
         
-        // --- SINGER / VOCALIST LOGIC ---
-        const singerMap = {
-            "Ahead By A Century": "Jeff",
-            "Blow At High Dough": "Jeff",
-            "All Apologies": "Jeff",
-            "ALL APOLOGIES": "Jeff",
-            "I'm On Fire": "D/M", 
-            "Dreams": "Melissa",
-            "Jolene": "Melissa",
-            "Heart of Glass": "Melissa",
-            "Rhiannon": "Melissa",
-            "Blister In The Sun": "Jeff",
-            "Can't Let Go": "Melissa",
-            "Cant Let Go": "Melissa",
-            "I Shot To Sheriff": "Jeff",
-            "You Wreck Me": "Jeff",
-            "Norwegian Wood": "Jeff",
-            "Johnny B. Goode": "Jeff",
-            "Johnny B Goode": "Jeff",
-            "Brown Eyed Girl": "Jeff",
-            "Cadillac Ranch": "Jeff",
-            "Flowers": "Melissa",
-            "Valerie": "Melissa",
-            "Layla": "Jeff",
-            "Blindman River": "Melissa",
-            "Zombie": "Melissa"
-        };
+        const singerMap = { "Ahead By A Century": "Jeff", "Blow At High Dough": "Jeff", "All Apologies": "Jeff", "ALL APOLOGIES": "Jeff", "I'm On Fire": "D/M", "Dreams": "Melissa", "Jolene": "Melissa", "Heart of Glass": "Melissa", "Rhiannon": "Melissa", "Blister In The Sun": "Jeff", "Can't Let Go": "Melissa", "Cant Let Go": "Melissa", "I Shot To Sheriff": "Jeff", "You Wreck Me": "Jeff", "Norwegian Wood": "Jeff", "Johnny B. Goode": "Jeff", "Johnny B Goode": "Jeff", "Brown Eyed Girl": "Jeff", "Cadillac Ranch": "Jeff", "Flowers": "Melissa", "Valerie": "Melissa", "Layla": "Jeff", "Blindman River": "Melissa", "Zombie": "Melissa" };
 
         function getSinger(titleStr) {
             const cleanTitle = titleStr.toLowerCase();
             for (const [key, value] of Object.entries(singerMap)) {
-                if (cleanTitle.includes(key.toLowerCase())) {
-                    return value;
-                }
+                if (cleanTitle.includes(key.toLowerCase())) { return value; }
             }
             if (cleanTitle.includes("jeff mclellan")) return "Jeff";
             if (cleanTitle.includes("melissa majeau")) return "Melissa";
@@ -685,232 +840,193 @@
         }
         
         function getSingerBadgeHTML(singer) {
-            if (singer === 'Jeff') {
-                return `<span class="singer-badge inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mr-2 no-print flex-shrink-0" title="Jeff">J</span>`;
-            } else if (singer === 'Melissa') {
-                return `<span class="singer-badge inline-flex items-center justify-center w-6 h-6 rounded-full bg-pink-500/20 text-pink-400 text-xs font-bold mr-2 no-print flex-shrink-0" title="Melissa">M</span>`;
-            } else if (singer === 'D/M') {
-                return `<span class="singer-badge inline-flex items-center justify-center w-8 h-6 rounded-full bg-gradient-to-r from-green-500/20 to-pink-500/20 text-white text-[10px] font-bold mr-2 no-print flex-shrink-0" title="Duet (Darren/Melissa)">D/M</span>`;
-            } else {
-                return `<span class="singer-badge inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/20 text-green-400 text-xs font-bold mr-2 no-print flex-shrink-0" title="Darren">D</span>`;
-            }
+            if (singer === 'Jeff') return `<span class="singer-badge inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold mr-2 no-print flex-shrink-0" title="Jeff">J</span>`;
+            if (singer === 'Melissa') return `<span class="singer-badge inline-flex items-center justify-center w-6 h-6 rounded-full bg-pink-500/20 text-pink-400 text-xs font-bold mr-2 no-print flex-shrink-0" title="Melissa">M</span>`;
+            if (singer === 'D/M') return `<span class="singer-badge inline-flex items-center justify-center w-8 h-6 rounded-full bg-gradient-to-r from-green-500/20 to-pink-500/20 text-white text-[10px] font-bold mr-2 no-print flex-shrink-0" title="Duet">D/M</span>`;
+            return `<span class="singer-badge inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500/20 text-green-400 text-xs font-bold mr-2 no-print flex-shrink-0" title="Darren">D</span>`;
         }
-        // ----------------------------------------------------
 
+        // --- RENDER LOGIC ---
         window.renderBank = () => {
             const searchInput = document.getElementById('bank-search');
-            // FIX: Safely check for searchInput before accessing value
+            const bankTitle = document.getElementById('bank-title');
+            const lockIcon = document.getElementById('manager-lock-icon');
+            
+            if(lockIcon) lockIcon.textContent = window.managerMode ? '🔓' : '🔒';
+
             const search = searchInput ? searchInput.value.toLowerCase() : ''; 
+            const listEl = document.getElementById('bank-list');
+            if(!listEl) return;
             
-            const filtered = masterBank.filter(s => s.toLowerCase().includes(search));
-            document.getElementById('bank-list').innerHTML = filtered.map(s => {
-                const singer = getSinger(s);
-                const badgeHTML = getSingerBadgeHTML(singer);
-                return `
-                <div class="bg-gray-800 border border-gray-700 p-2 rounded flex justify-between items-center group hover:bg-gray-750">
-                    <div class="flex items-center overflow-hidden mr-2">
-                        ${badgeHTML}
-                        <span class="text-sm text-gray-300 truncate" title="${s}">${s}</span>
-                    </div>
-                    <div class="flex gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
-                        <button onclick="addFromBank('${s.replace(/'/g, "\\'")}', 0)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">1</button>
-                        <button onclick="addFromBank('${s.replace(/'/g, "\\'")}', 1)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">2</button>
-                        <button onclick="addFromBank('${s.replace(/'/g, "\\'")}', 2)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">3</button>
-                        <button onclick="addFromBank('${s.replace(/'/g, "\\'")}', 3)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">4</button>
-                    </div>
-                </div>`
-            }).join('');
-        };
+            // Determine active source
+            let sourceList;
+            let showHolidaySection = false; 
+            let isDatabaseTab = currentTab === 'database';
 
-        // Audience side rendering (New: Visual Grid)
-        window.renderAudienceBank = () => {
-            // Search input is removed, but we keep the filtering logic if the user types anything
-            const searchInput = document.getElementById('bank-search-audience');
-            const search = searchInput ? searchInput.value.toLowerCase() : '';
-
-            const list = document.getElementById('audience-bank-list');
-            list.innerHTML = '';
-            
-            const filtered = masterBank.filter(s => s.toLowerCase().includes(search));
-            
-            if (filtered.length === 0) {
-                list.innerHTML = `<div class="text-center text-gray-500 py-4 text-sm italic">No songs match your search. Try typing your request below.</div>`;
-                return;
+            if (isDatabaseTab) {
+                sourceList = fullSongDatabase; // 800+
+                bankTitle.textContent = "Full Song Database (" + fullSongDatabase.length + ")";
+                showHolidaySection = false; 
+            } else {
+                sourceList = activeRotationList; // ~150
+                bankTitle.textContent = "Active Rotation (" + activeRotationList.length + ")";
+                showHolidaySection = true; 
             }
 
-            filtered.forEach(s => {
-                const singer = getSinger(s);
-                const badgeHTML = getSingerBadgeHTML(singer);
-                
-                // Note: We use a wrapper function in the onclick to handle the request
-                list.innerHTML += `
-                    <button class="audience-song-button bg-gray-700 hover:bg-yellow-800/50 text-white p-3 rounded-lg border border-gray-600 flex items-center justify-between text-left"
-                        onclick="submitBankRequest(this, '${s.replace(/'/g, "\\'")}')">
-                        <div class="flex items-center">
-                            ${badgeHTML}
-                            <span class="text-sm font-medium">${s}</span>
+            const filtered = sourceList.filter(s => s.toLowerCase().includes(search));
+            
+            // Render Main List
+            let html = filtered.map(s => renderSongRow(s, isDatabaseTab)).join('');
+
+            // Render Holiday Section (Only in Active Rotation view)
+            if (showHolidaySection) {
+                const filteredHoliday = holidayBank.filter(s => s.toLowerCase().includes(search));
+                if (!search || (search && filteredHoliday.length > 0)) {
+                    html += `
+                        <div class="col-span-full mt-6 mb-2 border-b border-gray-700 pb-2">
+                            <h3 class="text-red-400 font-bold uppercase text-xs tracking-wider">Holiday / Seasonal</h3>
                         </div>
-                        <span class="text-xs text-yellow-400">REQUEST</span>
-                    </button>
-                `;
-            });
-        };
-        
-        window.addFromBank = (t, i) => {
-            setCollections[currentTab][i].push({title: t, durationStr: "0:00"});
-            if(currentTab==='custom') localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
-            render();
-            showToast("Added to Set " + (i+1));
-        };
-
-        window.updateDuration = (si, songi, val) => {
-            setCollections[currentTab][si][songi].durationStr = val;
-            if(currentTab==='custom') localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
-            render();
-        };
-
-        window.deleteSong = (si, songi) => {
-            setCollections[currentTab][si].splice(songi, 1);
-            if(currentTab==='custom') localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
-            render();
-        };
-
-        window.downloadSetImage = (index) => {
-            const element = document.getElementById(`set-container-${index}`);
-            showToast("Processing image...");
-            html2canvas(element, {
-                scale: 2,
-                backgroundColor: "#1f2937",
-                useCORS: true,
-                onclone: (clonedDoc) => {
-                    const container = clonedDoc.getElementById(`set-container-${index}`);
-                    const list = clonedDoc.getElementById(`list-set-${index}`);
-                    if (container) {
-                        container.style.height = 'auto';
-                        container.style.overflow = 'visible';
-                        container.style.paddingBottom = '40px';
-                    }
-                    if (list) {
-                        list.style.maxHeight = 'none';
-                        list.style.overflow = 'visible';
-                    }
-                    const overflowHidden = container.querySelectorAll('.overflow-hidden');
-                    overflowHidden.forEach(el => { el.style.overflow = 'visible'; el.style.height = 'auto'; });
-                    const textItems = container.querySelectorAll('.truncate');
-                    textItems.forEach(el => {
-                        el.style.whiteSpace = 'normal'; el.style.overflow = 'visible'; el.style.textOverflow = 'clip'; el.style.lineHeight = '1.5'; el.style.paddingBottom = '5px'; el.style.display = 'block';
-                    });
+                    `;
+                    html += filteredHoliday.map(s => renderSongRow(s, false)).join('');
                 }
-            }).then(canvas => {
-                const link = document.createElement('a');
-                link.download = `set-${index+1}-${currentTab}.png`;
-                link.href = canvas.toDataURL();
-                showToast("Set saved!");
-                link.click();
-            }).catch(err => {
-                console.error(err);
-                showToast("Error generating image");
-            });
-        };
-
-        window.downloadAllImage = () => {
-            window.scrollTo(0,0);
-            const element = document.getElementById('sets-capture-area');
-            showToast("Processing full image...");
-            html2canvas(element, { 
-                backgroundColor: "#111827",
-                scale: 2,
-                onclone: (clonedDoc) => {
-                    const containers = clonedDoc.querySelectorAll('.set-container');
-                    containers.forEach(container => { container.style.height = 'auto'; container.style.overflow = 'visible'; container.style.marginBottom = '40px'; });
-                    const lists = clonedDoc.querySelectorAll('ul[id^="list-set-"]');
-                    lists.forEach(list => { list.style.maxHeight = 'none'; list.style.overflow = 'visible'; });
-                    const overflowHidden = clonedDoc.querySelectorAll('.overflow-hidden');
-                    overflowHidden.forEach(el => { el.style.overflow = 'visible'; el.style.height = 'auto'; });
-                    const textItems = clonedDoc.querySelectorAll('.truncate');
-                    textItems.forEach(el => {
-                        el.style.whiteSpace = 'normal'; el.style.overflow = 'visible'; el.style.textOverflow = 'clip'; el.style.lineHeight = '1.5'; el.style.paddingBottom = '5px'; el.style.display = 'block';
-                    });
-                }
-            }).then(canvas => {
-                const link = document.createElement('a');
-                link.download = `setlist-full-${currentTab}.png`;
-                link.href = canvas.toDataURL();
-                showToast("Image downloaded!");
-                link.click();
-            }).catch(err => {
-                console.error(err);
-                showToast("Error generating image");
-            });
-        };
-
-        // --- APP LOGIC ---
-
-        function switchTab(tabId) {
-            currentTab = tabId;
-            const customControls = document.getElementById('custom-controls');
-            const liveControls = document.getElementById('live-controls');
-            const setsArea = document.getElementById('sets-capture-area');
-            const inputSection = document.getElementById('input-section');
-            const songBank = document.getElementById('song-bank-section');
-            
-            // Toggle Views
-            customControls.classList.add('hidden');
-            liveControls.classList.add('hidden');
-            setsArea.classList.remove('hidden');
-            inputSection.classList.remove('hidden');
-            songBank.classList.remove('hidden');
-
-            if(tabId === 'custom') customControls.classList.remove('hidden');
-            
-            if(tabId === 'live') {
-                liveControls.classList.remove('hidden');
-                setsArea.classList.add('hidden');     // Hide regular sets
-                inputSection.classList.add('hidden'); // Hide input
-                songBank.classList.add('hidden');     // Hide bank
-                generateQR(); // Make sure QR is ready
             }
 
-            // Tab Styles
-            ['christmas', 'custom', 'originals', 'twostep', 'fifties', 'pophits', 'dance', 'live'].forEach(t => {
-                const btn = document.getElementById(`tab-${t}`);
-                if(!btn) return;
-                btn.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none whitespace-nowrap ";
-                
-                if (t === tabId) {
-                    if(tabId === 'live') btn.classList.add('bg-yellow-900/50', 'text-yellow-100', 'shadow', 'border', 'border-yellow-500');
-                    else if(tabId === 'twostep') btn.classList.add('bg-red-900/50', 'text-red-100', 'shadow', 'border', 'border-red-500');
-                    else if (tabId === 'fifties') btn.classList.add('bg-teal-900/50', 'text-teal-100', 'shadow', 'border', 'border-teal-500');
-                    else if (tabId === 'pophits') btn.classList.add('bg-pink-900/50', 'text-pink-100', 'shadow', 'border', 'border-pink-500');
-                    else if (tabId === 'dance') btn.classList.add('bg-blue-900/50', 'text-blue-100', 'shadow', 'border', 'border-blue-500');
-                    else btn.classList.add('text-white', 'bg-gray-700', 'shadow');
-                } else {
-                    if (t === 'live') btn.classList.add('text-yellow-400', 'hover:text-white', 'hover:bg-gray-750', 'border', 'border-yellow-900/30');
-                    else if(t === 'twostep' || t === 'fifties' || t === 'pophits' || t === 'dance') {
-                        // Emergency tabs visibility handled by class toggle
-                        btn.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-750', btn.classList.contains('hidden') ? 'hidden' : 'block');
+            listEl.innerHTML = html;
+        };
+
+        function renderSongRow(s, showAddButton) {
+            const singer = getSinger(s);
+            const badgeHTML = getSingerBadgeHTML(singer);
+            let cleanTitle = s.split('(')[0].trim();
+            const meta = window.getSongMetadata(cleanTitle) || window.getSongMetadata(s);
+            let metaHTML = '';
+            if(meta) {
+                if(meta.k) metaHTML += `<span class="text-[10px] bg-gray-700 text-yellow-500 border border-yellow-500/30 px-1 rounded ml-2 font-mono">${meta.k}</span>`;
+                if(meta.c) metaHTML += `<span class="text-[10px] bg-gray-700 text-cyan-400 border border-cyan-500/30 px-1 rounded ml-1 font-mono">Cp ${meta.c}</span>`;
+            }
+
+            // Database Tab Extra: Add to Rotation Button (PROTECTED)
+            let addToRotationBtn = '';
+            let removeBtn = '';
+
+            if (showAddButton) {
+                // Check if already in rotation
+                const inRotation = activeRotationList.includes(s);
+                if (!inRotation) {
+                    if (window.managerMode) {
+                        addToRotationBtn = `<button onclick="addToRotation('${s.replace(/'/g, "\\'")}')" class="text-[10px] bg-indigo-900 text-indigo-200 border border-indigo-700 hover:bg-indigo-700 w-6 h-6 rounded flex items-center justify-center mr-1" title="Add to Active Rotation">⭐</button>`;
+                    } else {
+                        // Hidden in locked mode
+                        addToRotationBtn = '';
                     }
-                    else btn.classList.add('text-gray-400', 'hover:text-white', 'hover:bg-gray-750');
+                } else {
+                    addToRotationBtn = `<span class="text-[10px] text-green-500 w-6 h-6 flex items-center justify-center mr-1">✓</span>`;
                 }
-            });
-            
-            if(tabId !== 'live') render();
-            showToast(`Switched to ${tabId}`);
+            } else if (window.managerMode) {
+                // Only show delete in Active Rotation view (not DB view), and only if manager
+                removeBtn = `<button onclick="removeFromRotation('${s.replace(/'/g, "\\'")}')" class="text-[10px] bg-red-900/50 text-red-300 border border-red-800 hover:bg-red-700 w-6 h-6 rounded flex items-center justify-center mr-1" title="Remove from Rotation">🗑️</button>`;
+            }
+
+            // Safely escape title for onclick attribute
+            const safeTitle = s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+            return `
+            <div class="bg-gray-800 border border-gray-700 p-2 rounded flex justify-between items-center group hover:bg-gray-750">
+                <div class="flex items-center overflow-hidden mr-2">
+                    ${badgeHTML}
+                    <span class="text-sm text-gray-300 truncate" title="${s}">${s}</span>
+                    ${metaHTML}
+                </div>
+                <div class="flex gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                    ${addToRotationBtn}
+                    ${removeBtn}
+                    <button onclick="openLyricsModal('${safeTitle}', '')" class="text-[10px] bg-gray-700 hover:text-white hover:bg-gray-600 w-6 h-6 rounded flex items-center justify-center" title="View Lyrics">📝</button>
+                    <button onclick="addFromBank('${safeTitle}', 0)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">1</button>
+                    <button onclick="addFromBank('${safeTitle}', 1)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">2</button>
+                    <button onclick="addFromBank('${safeTitle}', 2)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">3</button>
+                    <button onclick="addFromBank('${safeTitle}', 3)" class="text-[10px] bg-gray-700 hover:bg-indigo-600 w-5 h-5 rounded">4</button>
+                </div>
+            </div>`;
         }
 
-        // --- CORE FUNCTIONS (Render, Drag, Calculate) ---
-        function timeToSeconds(str) {
-            // FIX: Removed this function as time is no longer needed. Returns 0 for safety.
-            return 0;
-        }
+        window.addToRotation = (songName) => {
+            if (!activeRotationList.includes(songName)) {
+                activeRotationList.push(songName);
+                activeRotationList.sort();
+                localStorage.setItem('myActiveRotation', JSON.stringify(activeRotationList));
+                showToast("Added to Active Rotation");
+                renderBank(); // Refresh to show checkmark
+            }
+        };
+
+        window.addFromBank = (t, i) => {
+            if(!setCollections[currentTab] || !setCollections[currentTab][i]) return showToast("Error: Set not available", true);
+            
+            setCollections[currentTab][i].push({title: t, durationStr: "0:00"});
+            if(currentTab === 'custom') {
+                localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+            } else if (currentTab === 'collaborate') {
+                window.updateCollaboration();
+            }
+            showToast("Added to Set " + (i+1));
+            render();
+        };
+
+        window.addNewSong = () => {
+            const titleInput = document.getElementById('song-title');
+            const setSelect = document.getElementById('target-set');
+            const title = titleInput.value.trim();
+            const setIdx = parseInt(setSelect.value);
+            
+            if(title) {
+                // Safety check
+                if(!setCollections[currentTab] || !setCollections[currentTab][setIdx]) return showToast("Set not available", true);
+
+                setCollections[currentTab][setIdx].push({title: title, durationStr: "0:00"});
+                if(currentTab === 'custom') {
+                    localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+                } else if (currentTab === 'collaborate') {
+                    window.updateCollaboration();
+                }
+                titleInput.value = '';
+                showToast("Song added!");
+                render();
+            }
+        };
+
+        window.deleteSong = (setIndex, songIndex) => {
+            setCollections[currentTab][setIndex].splice(songIndex, 1);
+            if(currentTab === 'custom') {
+                localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+            } else if (currentTab === 'collaborate') {
+                window.updateCollaboration();
+            }
+            render();
+        };
+
+        window.handleDragDrop = (evt) => {
+            for(let i=0; i<4; i++) {
+                const list = document.getElementById(`list-set-${i}`);
+                if(!list) continue;
+                const items = Array.from(list.children).map(li => {
+                    return { title: li.getAttribute('data-title'), durationStr: "0:00" };
+                });
+                setCollections[currentTab][i] = items;
+            }
+            if(currentTab === 'custom') {
+                localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+            } else if (currentTab === 'collaborate') {
+                window.updateCollaboration();
+            }
+            render(); 
+        };
 
         function render() {
             sortables.forEach(s => s.destroy());
             sortables = [];
             
-            // Removed: let grandTotalSeconds = 0;
             const activeSets = setCollections[currentTab];
-            const isEmergency = (currentTab === 'twostep' || currentTab === 'fifties' || currentTab === 'pophits' || currentTab === 'dance');
+            const isEmergency = false; 
 
             for(let i=0; i<4; i++) {
                 const listEl = document.getElementById(`list-set-${i}`);
@@ -919,41 +1035,24 @@
                 
                 if(!listEl) continue;
 
-                if (isEmergency && i > 0) {
-                     // Hide Set 2, 3, 4 for emergency tabs (Point 7)
-                    container.classList.add('hidden');
-                    continue;
-                } else {
-                    container.classList.remove('hidden');
-                }
+                container.classList.remove('hidden'); 
                 
                 let setSongs = activeSets[i];
                 let notInBank = [];
 
-                if (isEmergency && i === 0) {
-                    // This function is now defined in the global scope below the module script
+                if (i === 0 && currentTab === 'current') {
                     const filtered = filterSongsAgainstMasterBank(activeSets[i]); 
                     setSongs = filtered.inBank;
                     notInBank = filtered.notInBank;
                 }
 
-
-                // Removed: let setSeconds = 0;
-                // Removed: setSongs.forEach(s => setSeconds += timeToSeconds(s.durationStr));
-                // Removed: grandTotalSeconds += setSeconds;
-
-                // Update Header Time and inject the Image Download Button (FIXED)
+                // Header Logic
                 const title = `Set ${i + 1}`;
-                const titleClass = "text-xl font-bold text-green-400";
+                const copyBtn = currentTab !== 'custom' && currentTab !== 'collaborate' ? `<button onclick="openCopyModal(${i})" class="text-indigo-400 hover:text-white p-1 ml-2 text-xs font-bold" title="Copy">COPY</button>` : '';
                 
-                // Reconstruct the header safely
-                const copyBtn = currentTab !== 'custom' ? `<button onclick="openCopyModal(${i})" class="text-indigo-400 hover:text-white p-1 ml-2 text-xs font-bold" title="Copy">COPY</button>` : '';
-                
-                // Start building the header content
-                // FINAL FIX FOR ICON: Using Unicode character instead of complex SVG structure injection
                 let headerContent = `
                     <div class="flex items-center justify-between w-full"> 
-                        <h2 class="${titleClass}">${title}</h2>
+                        <h2 class="text-xl font-bold text-green-400">${title}</h2>
                         <div class="flex items-center gap-3">
                             <span class="font-mono text-gray-400 bg-gray-900 px-2 py-1 rounded text-sm set-time-badge" style="display: none;">0:00</span>
                             <div class="flex gap-1 no-print">
@@ -963,262 +1062,423 @@
                         </div>
                     </div>`;
 
-                // Add Other Suggestions Box for emergency lists (Point 1)
-                if (isEmergency && i === 0 && notInBank.length > 0) {
+                if (currentTab === 'current' && i === 0 && notInBank.length > 0) {
                     const suggestionList = notInBank.map(s => s.title).join(', ');
-                    headerContent += `
-                        <div class="mt-3 bg-red-900/30 p-2 rounded-lg text-xs text-red-300 border border-red-700">
-                            <span class="font-bold">Other Suggestions (Not in Bank):</span>
-                            <p class="italic">${suggestionList}</p>
-                        </div>
-                    `;
+                    headerContent += `<div class="mt-3 bg-red-900/30 p-2 rounded-lg text-xs text-red-300 border border-red-700"><span class="font-bold">Other Suggestions:</span><p class="italic">${suggestionList}</p></div>`;
                 }
-
                 headerDiv.innerHTML = headerContent;
 
-
                 listEl.innerHTML = '';
-                if(setSongs.length === 0) {
+                if(setSongs && setSongs.length === 0) {
                     listEl.innerHTML = `<li class="p-4 text-gray-500 text-center text-sm italic">Empty Set</li>`;
-                } else {
+                } else if (setSongs) {
                     setSongs.forEach((song, idx) => {
                         const singer = getSinger(song.title);
                         const badgeHTML = getSingerBadgeHTML(singer);
+                        
+                        let cleanTitle = song.title.split('(')[0].trim();
+                        const meta = window.getSongMetadata(cleanTitle) || window.getSongMetadata(song.title);
+                        let metaHTML = '';
+                        if(meta) {
+                            if(meta.k) metaHTML += `<span class="text-[10px] bg-gray-700 text-yellow-500 border border-yellow-500/30 px-1 rounded ml-2 font-mono">${meta.k}</span>`;
+                            if(meta.c) metaHTML += `<span class="text-[10px] bg-gray-700 text-cyan-400 border border-cyan-500/30 px-1 rounded ml-1 font-mono">Cp ${meta.c}</span>`;
+                        }
+
+                        // Safely escape title for onclick attribute
+                        const safeTitle = song.title.replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
                         listEl.innerHTML += `
                             <li class="group flex items-center justify-between p-3 hover:bg-gray-750 transition border-l-4 border-transparent hover:border-indigo-500 bg-gray-800 odd:bg-gray-800 even:bg-gray-800/50" data-title="${song.title}">
-                                <div class="flex items-center gap-3 overflow-hidden">
+                                <div class="flex items-center gap-3 overflow-hidden flex-grow">
                                     <div class="drag-handle cursor-grab text-gray-600 hover:text-gray-400 no-print">☰</div>
                                     <span class="text-gray-500 font-mono text-xs w-5 text-right no-print select-none">${idx + 1}.</span>
                                     <div class="truncate text-gray-200 text-sm md:text-base print-black flex items-center" title="${song.title}">
                                         ${badgeHTML}
                                         ${song.title}
+                                        ${metaHTML}
                                     </div>
                                 </div>
-                                <div class="flex items-center gap-2 flex-shrink-0">
-                                    <!-- Removed duration input field -->
-                                    <button onclick="deleteSong(${i}, ${idx})" class="p-1 hover:text-red-400 text-gray-600 opacity-0 group-hover:opacity-100 transition no-print">×</button>
+                                <div class="flex items-center gap-2 flex-shrink-0 no-print">
+                                    <button onclick="openLyricsModal('${safeTitle}', '')" class="text-gray-500 hover:text-white p-1" title="Lyrics/Chords">📝</button>
+                                    <button onclick="deleteSong(${i}, ${idx})" class="p-1 hover:text-red-400 text-gray-600 opacity-0 group-hover:opacity-100 transition">×</button>
                                 </div>
                             </li>`;
                     });
                 }
             }
-            // Removed: document.getElementById('grand-total-time').textContent = secondsToTime(grandTotalSeconds);
             
-            // Init Sortable
             for(let i=0; i<4; i++) {
                 const el = document.getElementById(`list-set-${i}`);
-                if(el) sortables.push(new Sortable(el, { group: 'shared', animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost', onEnd: handleDragDrop }));
+                if(el) sortables.push(new Sortable(el, { 
+                    group: 'shared', 
+                    animation: 200, 
+                    delay: 250, 
+                    delayOnTouchOnly: true,
+                    handle: '.drag-handle', 
+                    ghostClass: 'sortable-ghost', 
+                    onEnd: handleDragDrop 
+                }));
             }
         }
 
-        function handleDragDrop() {
-            const newSets = [[], [], [], []];
-            for(let i=0; i<4; i++) {
-                const items = document.getElementById(`list-set-${i}`).querySelectorAll('li[data-title]');
-                items.forEach(item => {
-                    const title = item.getAttribute('data-title');
-                    // durationStr is preserved as "0:00" internally but removed from UI
-                    newSets[i].push({ title, durationStr: "0:00" }); 
-                });
-            }
-            setCollections[currentTab] = newSets;
-            if(currentTab === 'custom') localStorage.setItem('myCustomSets', JSON.stringify(newSets));
-            render();
-        }
-
-        // --- LIVE & AUDIENCE FEATURES ---
-        function generateQR() {
-            const container = document.getElementById('qrcode');
-            if(container.innerHTML !== "") return; // Already generated
-            const url = window.location.href.split('?')[0] + "?mode=audience";
-            new QRCode(container, { text: url, width: 200, height: 200 });
-        }
-        
-        // Audience submits a song from the visual bank
-        window.submitBankRequest = async (btnElement, songTitle) => {
-            // UI Feedback: Loading State
-            const originalContent = btnElement.innerHTML;
-            btnElement.disabled = true;
-            btnElement.innerHTML = `<div class="flex items-center justify-between w-full"><div class="flex items-center"><span class="spinner"></span><span class="text-sm font-medium">Sending...</span></div></div>`;
-
-            // Artist is implicitly empty for bank songs
-            // addAudienceRequest handles the anti-spam and vote logic
-            const success = await window.addAudienceRequest(songTitle, '', 'bank'); 
+        // --- TAB SWITCHER ---
+        window.switchTab = (tabId) => {
+            currentTab = tabId;
+            const customControls = document.getElementById('custom-controls');
+            const liveControls = document.getElementById('live-controls');
+            const setsArea = document.getElementById('sets-capture-area');
+            const inputSection = document.getElementById('input-section');
+            const songBank = document.getElementById('song-bank-section');
+            const bankTitle = document.querySelector('#song-bank-section h2');
+            const collabInfo = document.getElementById('collaborate-info');
             
-            // Revert UI State
-            btnElement.disabled = false;
-            btnElement.innerHTML = originalContent;
+            customControls.classList.add('hidden');
+            liveControls.classList.add('hidden');
+            setsArea.classList.remove('hidden');
+            inputSection.classList.remove('hidden');
+            songBank.classList.add('hidden'); 
+            collabInfo.classList.add('hidden');
 
-            if (success) {
-                document.getElementById('request-success').classList.remove('hidden');
-                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            if(tabId === 'custom') customControls.classList.remove('hidden');
+            if(tabId === 'collaborate') collabInfo.classList.remove('hidden');
+            
+            if(tabId === 'live') {
+                liveControls.classList.remove('hidden');
+                setsArea.classList.add('hidden');
+                inputSection.classList.add('hidden');
+                generateQR();
+            }
+            
+            // Show Bank in Database OR when viewing sets (except live)
+            if(tabId === 'database') {
+                setsArea.classList.add('hidden'); 
+                inputSection.classList.add('hidden'); 
+                songBank.classList.remove('hidden'); 
+                if(bankTitle) bankTitle.textContent = "Full Song Database (800+)";
+                renderBank(); 
+            } else if (tabId !== 'live') {
+                songBank.classList.remove('hidden');
+                if(bankTitle) bankTitle.textContent = "Active Rotation";
+                renderBank();
+            }
+
+            const tabs = ['current', 'custom', 'collaborate', 'originals', 'database', 'live'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-${t}`);
+                if(!btn) return;
                 
-                // Re-render bank after request (to reflect any state changes if needed)
-                renderAudienceBank();
-            }
-        }
-
-        // Audience submits a new, non-bank song request
-        async function submitNewRequest() {
-            const newSongInput = document.getElementById('audience-new-song');
-            const artistInput = document.getElementById('audience-artist');
-            const submitBtn = document.getElementById('btn-submit-new');
-
-            const newSong = newSongInput.value.trim();
-            const artist = artistInput.value.trim();
-            
-            if (!newSong) {
-                showToast("Please enter a song name for your request.", true);
-                return;
-            }
-
-            // UI Feedback: Loading State
-            const originalBtnText = submitBtn.innerHTML;
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = `<span class="spinner"></span> Sending...`;
-            
-            // addAudienceRequest handles the anti-spam and vote logic
-            const success = await window.addAudienceRequest(newSong, artist, 'new');
-            
-            // Revert UI State
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalBtnText;
-            
-            if (success) {
-                // Clear form
-                newSongInput.value = '';
-                artistInput.value = '';
+                // Base Classes
+                let cls = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition focus:outline-none whitespace-nowrap ";
                 
-                document.getElementById('request-success').classList.remove('hidden');
-                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            }
-        }
-
-        // --- UTILS & INIT ---
-        function secondsToTime(s) {
-            // Function no longer needed, returning simple value for safety if called
-            return '0:00'; 
-        }
-        function showToast(msg, isError = false) {
-            const t = document.getElementById('toast');
-            document.getElementById('toast-message').textContent = msg;
-            t.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl transform opacity-0 transition-all duration-300 z-50 ${isError ? 'bg-red-600' : 'bg-green-600'} text-white`;
-            
-            // Show toast
-            requestAnimationFrame(() => {
-                t.classList.remove('translate-y-20', 'opacity-0');
-                t.classList.add('opacity-100');
+                // Active State
+                if (t === tabId) {
+                    if(tabId === 'live') cls += 'bg-yellow-900/50 text-yellow-100 border border-yellow-500';
+                    else if(tabId === 'database') cls += 'bg-indigo-900/50 text-indigo-100 border border-indigo-500 ml-2';
+                    else if(tabId === 'collaborate') cls += 'bg-purple-900/50 text-purple-100 border border-purple-500 shadow-lg';
+                    else cls += 'bg-gray-700 text-white shadow';
+                } 
+                // Inactive State
+                else {
+                    if (t === 'live') cls += 'text-yellow-400 hover:text-white hover:bg-gray-750 border border-yellow-900/30';
+                    else if(t === 'database') cls += 'text-gray-400 hover:text-white hover:bg-gray-750 border-l border-gray-600 ml-2';
+                    else if(t === 'collaborate') cls += 'text-purple-400 hover:text-white hover:bg-gray-750 border border-purple-900/30';
+                    else cls += 'text-gray-400 hover:text-white hover:bg-gray-750';
+                }
+                btn.className = cls;
             });
             
-            // Hide toast
-            setTimeout(() => {
-                t.classList.add('translate-y-20', 'opacity-0');
-            }, 3000);
-        }
-        
-        function resetToDefault() {
-            // Using a custom modal/toast instead of alert per instructions
-            const confirmAction = window.confirmAction || (msg => window.confirm(msg));
-            if (!confirmAction(`Are you sure you want to reset the current tab (${currentTab}) to its default songs? This cannot be undone.`)) return;
-            
-            // Deep copy the original data back
-            if (currentTab === 'christmas') setCollections.christmas = JSON.parse(JSON.stringify(christmasData));
-            else if (currentTab === 'originals') setCollections.originals = JSON.parse(JSON.stringify(originalsData));
-            else if (currentTab === 'twostep') setCollections.twostep = JSON.parse(JSON.stringify(twoStepData));
-            else if (currentTab === 'fifties') setCollections.fifties = JSON.parse(JSON.stringify(fiftiesData));
-            else if (currentTab === 'pophits') setCollections.pophits = JSON.parse(JSON.stringify(popHitsData));
-            else if (currentTab === 'dance') setCollections.dance = JSON.parse(JSON.stringify(danceData));
-            else if (currentTab === 'custom') { setCollections.custom = [[], [], [], []]; localStorage.removeItem('myCustomSets'); }
-            
-            render();
-            showToast(`Tab '${currentTab}' reset to default.`);
+            if(tabId !== 'live' && tabId !== 'database') render();
+            showToast(`Switched to ${tabId.charAt(0).toUpperCase() + tabId.slice(1)}`);
         }
 
-        function clearAll() {
-            // Using a custom modal/toast instead of alert per instructions
-            const confirmAction = window.confirmAction || (msg => window.confirm(msg));
-            if (!confirmAction(`Are you sure you want to clear ALL sets in the current tab (${currentTab})? This cannot be undone.`)) return;
-            
-            setCollections[currentTab] = [[], [], [], []];
-            if (currentTab === 'custom') localStorage.removeItem('myCustomSets');
-            
-            render();
-            showToast(`All sets in '${currentTab}' cleared.`);
-        }
-
-        // --- EMERGENCY BUTTONS ---
-        function activateTwoStep() { document.getElementById('tab-twostep').classList.remove('hidden'); switchTab('twostep'); }
-        function activate50s() { document.getElementById('tab-fifties').classList.remove('hidden'); switchTab('fifties'); }
-        function activatePopHits() { document.getElementById('tab-pophits').classList.remove('hidden'); switchTab('pophits'); }
-        function activateDance() { document.getElementById('tab-dance').classList.remove('hidden'); switchTab('dance'); }
-        
-        // --- COPY & ADD ---
-        let sourceSetToCopy = null;
-        function openCopyModal(i) { sourceSetToCopy = i; document.getElementById('copy-modal').classList.remove('hidden'); }
-        function executeCopy(targetI) {
-            if(sourceSetToCopy === null) return;
-            const songs = setCollections[currentTab][sourceSetToCopy];
-            setCollections.custom[targetI] = setCollections.custom[targetI].concat(JSON.parse(JSON.stringify(songs)));
-            localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
-            document.getElementById('copy-modal').classList.add('hidden');
-            showToast("Set copied!");
-        }
-
-        // --- IMPORT/EXPORT (Custom Tab) ---
-        function exportCustomData() {
+        // --- EXPORT/IMPORT & UTILS ---
+        window.exportCustomData = () => {
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(setCollections.custom));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", "setlist_custom_backup.json");
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-            showToast("Custom sets exported.");
-        }
+            const dlAnchorElem = document.createElement('a');
+            dlAnchorElem.setAttribute("href", dataStr);
+            dlAnchorElem.setAttribute("download", "setlist_custom.json");
+            dlAnchorElem.click();
+        };
 
-        function importCustomData(input) {
+        window.importCustomData = (input) => {
             const file = input.files[0];
             if (!file) return;
-
             const reader = new FileReader();
-            reader.onload = (e) => {
+            reader.onload = function(e) {
                 try {
-                    const importedData = JSON.parse(e.target.result);
-                    if (Array.isArray(importedData) && importedData.length === 4 && importedData.every(Array.isArray)) {
-                        setCollections.custom = importedData;
-                        localStorage.setItem('myCustomSets', JSON.stringify(importedData));
-                        render();
-                        showToast("Custom sets imported successfully!");
-                    } else {
-                        // Using a custom modal/toast instead of alert per instructions
-                        showToast("Invalid file format. Please import a file containing an array of 4 arrays.", true);
-                    }
-                } catch (error) {
-                    showToast("Error parsing JSON file: " + error.message, true);
-                }
-                // Clear the input value so the same file can be imported again
-                input.value = '';
+                    const data = JSON.parse(e.target.result);
+                    if(Array.isArray(data) && data.length === 4) {
+                        setCollections.custom = data;
+                        localStorage.setItem('myCustomSets', JSON.stringify(data));
+                        window.switchTab('custom');
+                        showToast("Custom sets loaded!");
+                    } else { showToast("Invalid file format", true); }
+                } catch(e) { showToast("Error parsing file", true); }
             };
             reader.readAsText(file);
+        };
+        
+        window.resetToDefault = () => {
+             if(confirm('Reset this tab to default?')) {
+                 if(currentTab === 'custom') {
+                     setCollections.custom = [[],[],[],[]];
+                     localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+                 } else if (currentTab === 'collaborate') {
+                     setCollections.collaborate = [[],[],[],[]];
+                     window.updateCollaboration();
+                 } else {
+                     window.location.reload();
+                 }
+                 render();
+                 showToast("Reset complete");
+             }
+        };
+
+        window.clearAll = () => {
+            if(confirm('Clear all songs in this tab?')) {
+                setCollections[currentTab] = [[],[],[],[]];
+                if(currentTab === 'custom') localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+                else if(currentTab === 'collaborate') window.updateCollaboration();
+                render();
+            }
+        };
+
+        // NEW IMAGE CAPTURE LOGIC
+        window.downloadAllImage = async () => {
+            showToast("Generating image...");
+            
+            // Create a clone of the capture area to handle scrolling content
+            const original = document.getElementById("sets-capture-area");
+            const clone = original.cloneNode(true);
+            
+            // Set styles to ensure full capture (no scrollbars, full height)
+            clone.style.width = original.offsetWidth + 'px';
+            clone.style.height = 'auto'; 
+            clone.style.position = 'absolute';
+            clone.style.top = '-10000px';
+            clone.style.left = '0';
+            clone.style.overflow = 'visible'; 
+            
+            // Ensure all lists inside are fully expanded
+            const lists = clone.querySelectorAll('ul');
+            lists.forEach(list => {
+                list.style.maxHeight = 'none';
+                list.style.overflow = 'visible';
+                list.style.height = 'auto';
+            });
+            
+            document.body.appendChild(clone);
+            
+            try {
+                const canvas = await html2canvas(clone, {
+                    backgroundColor: "#111827",
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    windowHeight: clone.scrollHeight + 100 
+                });
+                
+                const link = document.createElement('a');
+                link.download = `setlist-${currentTab}-${new Date().toISOString().slice(0,10)}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            } catch(e) {
+                console.error(e);
+                showToast("Image generation failed", true);
+            } finally {
+                document.body.removeChild(clone);
+            }
+        };
+        
+        window.downloadSetImage = async (setIndex) => {
+            showToast(`Capturing Set ${setIndex+1}...`);
+            
+            const original = document.getElementById(`set-container-${setIndex}`);
+            const clone = original.cloneNode(true);
+            
+            clone.style.width = original.offsetWidth + 'px';
+            clone.style.height = 'auto';
+            clone.style.position = 'absolute';
+            clone.style.top = '-10000px';
+            clone.style.left = '0';
+            
+            const list = clone.querySelector('ul');
+            if(list) {
+                list.style.maxHeight = 'none';
+                list.style.overflow = 'visible';
+                list.style.height = 'auto';
+            }
+            
+            document.body.appendChild(clone);
+            
+            try {
+                const canvas = await html2canvas(clone, {
+                    backgroundColor: "#1f2937",
+                    scale: 2,
+                    windowHeight: clone.scrollHeight + 50
+                });
+                
+                const link = document.createElement('a');
+                link.download = `set-${setIndex+1}-${new Date().toISOString().slice(0,10)}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            } finally {
+                document.body.removeChild(clone);
+            }
+        };
+
+        // COPY FUNCTIONALITY
+        let copySourceIndex = -1;
+        window.openCopyModal = (index) => {
+            copySourceIndex = index;
+            document.getElementById('copy-modal').classList.remove('hidden');
+        };
+
+        window.executeCopy = (targetIndex) => {
+            if (copySourceIndex === -1) return;
+            const sourceSongs = setCollections[currentTab][copySourceIndex];
+            const target = setCollections.custom[targetIndex];
+            
+            sourceSongs.forEach(s => target.push({...s}));
+            localStorage.setItem('myCustomSets', JSON.stringify(setCollections.custom));
+            
+            document.getElementById('copy-modal').classList.add('hidden');
+            showToast(`Copied Set ${copySourceIndex + 1} to Custom Set ${targetIndex + 1}`);
+        };
+        
+        // QR Code
+        const generateQR = () => {
+            const qrEl = document.getElementById("qrcode");
+            if (!qrEl) return;
+            qrEl.innerHTML = "";
+            const audienceUrl = window.location.href + (window.location.href.includes('?') ? '&' : '?') + "mode=audience";
+            new QRCode(qrEl, {
+                text: audienceUrl,
+                width: 128,
+                height: 128
+            });
+        };
+        
+        // Audience Bank
+        window.renderAudienceBankFallback = () => {
+             const list = document.getElementById('audience-bank-list');
+             if(!list) return;
+             // masterBank is now dynamically fetched
+             const songs = window.masterBank || []; 
+             if(songs.length === 0) {
+                 list.innerHTML = '<div class="text-gray-500 text-center p-4">Loading song list...</div>';
+                 return;
+             }
+             list.innerHTML = songs.map(s => `
+                <button onclick="window.submitBankRequest('${s.replace(/'/g, "\\'")}')" class="w-full text-left bg-gray-800 hover:bg-gray-700 p-2 rounded text-sm text-gray-300 border-b border-gray-700 flex justify-between items-center group">
+                    <span>${s}</span>
+                    <span class="text-xs text-pink-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity">REQUEST +</span>
+                </button>
+            `).join('');
+        };
+        
+        window.submitBankRequest = async (songName) => {
+             const success = await window.addAudienceRequest(songName, '', 'bank');
+             if(success) {
+                  document.getElementById('request-success').classList.remove('hidden');
+                  setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+             }
+        }
+        
+        window.submitNewRequest = async () => {
+            const songInput = document.getElementById('audience-new-song');
+            const artistInput = document.getElementById('audience-artist');
+            let song = songInput.value.trim();
+            const artist = artistInput.value.trim();
+            
+            if(!song) return showToast("Please enter a song name", true);
+            if(song.length < 3) return showToast("Song name too short", true);
+            
+            // --- STRICTER GIBBERISH DETECTION ---
+            if(/(.)\1{2,}/.test(song)) return showToast("Invalid song name", true);
+            if(!/[aeiouy]/i.test(song)) return showToast("Please enter a valid song name", true);
+
+            // 1. Check Internal Database First (Fastest)
+            const lowerSong = song.toLowerCase();
+            const inInternalDB = window.fullDatabase.some(dbSong => dbSong.toLowerCase().includes(lowerSong));
+            
+            if (inInternalDB) {
+                 await processRequest(song, artist, 'new');
+                 return;
+            }
+
+            // 2. iTunes API Check (Stricter)
+            const submitBtn = document.getElementById('btn-submit-new');
+            const originalBtnText = submitBtn.innerHTML;
+            submitBtn.innerHTML = 'Verifying...';
+            submitBtn.disabled = true;
+
+            try {
+                // Combine song and artist for better search if artist provided
+                const searchTerm = artist ? `${song} ${artist}` : song;
+                const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=song&limit=5`);
+                const data = await res.json();
+
+                if (data.resultCount > 0) {
+                     // Check if any result actually contains the input string WHOLE WORD
+                     // Escape special regex chars from user input
+                     const escapedInput = window.sanitizeId(lowerSong).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, ' ');
+                     
+                     const validMatch = data.results.find(result => {
+                         const track = result.trackName.toLowerCase();
+                         // Match start of string, end of string, or surrounded by whitespace/punctuation
+                         // This allows "Snake" to match "Snake" or "Snake (Remix)" but rejects "Rattlesnake"
+                         const regex = new RegExp(`(^|\\s|\\(|\\)|-)${escapedInput}($|\\s|\\(|\\)|-)`, 'i');
+                         return track.includes(lowerSong) && regex.test(track);
+                     });
+                     
+                     if(validMatch) {
+                         // If valid match found, use THAT artist if user didn't provide one
+                         // This helps avoid "Snake" looking like nonsense when it's "Snake (Artist Name)"
+                         const finalArtist = artist || validMatch.artistName;
+                         await processRequest(song, finalArtist, 'new');
+                     } else {
+                         showToast("Could not verify this song exists. Please check spelling.", true);
+                     }
+                } else {
+                     showToast("Could not verify this song exists. Please check spelling.", true);
+                }
+            } catch (e) {
+                console.error("Verification failed", e);
+                // Fallback: If verification fails due to network/API error, allow it but warn.
+                showToast("Verification service unavailable. Try again.", true);
+            } finally {
+                submitBtn.innerHTML = originalBtnText;
+                submitBtn.disabled = false;
+            }
+        };
+        
+        async function processRequest(song, artist, type) {
+             const success = await window.addAudienceRequest(song, artist, type);
+             if(success) {
+                document.getElementById('audience-new-song').value = '';
+                document.getElementById('audience-artist').value = '';
+                document.getElementById('request-success').classList.remove('hidden');
+                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+            }
         }
 
-
-        // --- INIT LOGIC ---
+        // --- INIT ---
         window.addEventListener('load', () => {
-            // Check for Audience Mode
-            const params = new URLSearchParams(window.location.search);
-            if(params.get('mode') === 'audience') {
-                document.getElementById('band-interface').classList.add('hidden');
-                document.getElementById('audience-interface').classList.remove('hidden');
-                document.title = "Make a Request - SetList Live";
-                // Initial fill of audience bank dropdown
-                window.renderAudienceBank();
-            } else {
-                // Band Mode
-                renderBank();
-                switchTab('christmas');
-            }
+            initDatabase().then(() => {
+                const params = new URLSearchParams(window.location.search);
+                window.masterBank = activeRotationList; // Expose for audience mode (FIXED HERE)
+                window.fullDatabase = fullDatabaseKeys; // Expose for request validation
+                
+                if(params.get('mode') === 'audience') {
+                    document.getElementById('band-interface').classList.add('hidden');
+                    document.getElementById('audience-interface').classList.remove('hidden');
+                    window.renderAudienceBankFallback();
+                } else {
+                    renderBank(); 
+                    switchTab('current');
+                }
+            });
         });
     </script>
 </body>
