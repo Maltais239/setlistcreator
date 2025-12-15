@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setlist Creator 2.9.9</title>
+    <title>Setlist Creator 3.0</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,14 +17,42 @@
         ::-webkit-scrollbar-track { background: #1f2937; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        .sortable-ghost { opacity: 0.4; background: #374151; }
+        
+        /* --- DRAG & DROP STYLES --- */
         .drag-handle { 
             cursor: grab; 
-            padding: 12px 18px; /* Greatly increased touch target for phones */
+            padding: 12px 18px; /* Touch target */
             font-size: 1.5rem;
-            touch-action: none; /* CRITICAL: Prevent scroll on handle for touch devices */
+            touch-action: none; /* CRITICAL for mobile */
+            color: #6b7280;
+            transition: color 0.2s;
         }
         .drag-handle:active { cursor: grabbing; color: #818cf8; }
+        
+        /* The item currently being dragged (floating) */
+        .sortable-drag { 
+            opacity: 1 !important; 
+            background: #1f2937 !important; 
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3) !important;
+            transform: scale(1.02);
+            border: 1px solid #818cf8;
+            border-radius: 0.5rem;
+            z-index: 9999;
+        }
+        
+        /* The drop placeholder */
+        .sortable-ghost { 
+            opacity: 0.4; 
+            background: #374151; 
+            border: 2px dashed #6366f1; /* Indigo dashed border */
+            border-radius: 0.5rem;
+        }
+        
+        /* The item selected before drag starts */
+        .sortable-chosen {
+            background: #374151;
+        }
+
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
         .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; margin-right: 5px; }
@@ -467,10 +495,15 @@
                 if(el) sortables.push(new Sortable(el, { 
                     group: 'shared', 
                     animation: 200, 
-                    delay: 250, 
+                    delay: 150, 
                     delayOnTouchOnly: true,
                     handle: '.drag-handle', 
                     ghostClass: 'sortable-ghost', 
+                    chosenClass: 'sortable-chosen',
+                    dragClass: 'sortable-drag',
+                    onChoose: function (evt) {
+                        if (navigator.vibrate) navigator.vibrate(50);
+                    },
                     onEnd: handleDragDrop 
                 }));
             }
@@ -1142,103 +1175,35 @@
         window.deleteRequest = deleteRequest;
         window.clearAllRequests = clearAllRequests;
         
-        // Audience Bank
-        window.renderAudienceBankFallback = () => {
-             const list = document.getElementById('audience-bank-list');
-             if(!list) return;
-             // masterBank is now dynamically fetched
-             const songs = window.masterBank || window.activeRotationList || []; 
-             if(songs.length === 0) {
-                 list.innerHTML = '<div class="text-gray-400 text-center p-4">Loading song list...</div>';
-                 return;
-             }
-             list.innerHTML = songs.map(s => `
-                <button onclick="window.submitBankRequest('${s.replace(/'/g, "\\'")}')" class="w-full text-left bg-transparent hover:bg-white/10 p-3 rounded-lg text-sm text-gray-200 border-b border-white/5 flex justify-between items-center group transition-colors">
-                    <span>${s}</span>
-                    <span class="text-xs text-pink-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity">REQUEST +</span>
-                </button>
-            `).join('');
-        };
-        
-        window.submitBankRequest = async (songName) => {
-             const success = await window.addAudienceRequest(songName, '', 'bank');
-             if(success) {
-                  document.getElementById('request-success').classList.remove('hidden');
-                  setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-             }
-        }
-        
-        window.submitNewRequest = async () => {
-            const songInput = document.getElementById('audience-new-song');
-            const artistInput = document.getElementById('audience-artist');
-            let song = songInput.value.trim();
-            const artist = artistInput.value.trim();
-            
-            if(!song) return showToast("Please enter a song name", true);
-            if(song.length < 3) return showToast("Song name too short", true);
-            if(/(.)\1{2,}/.test(song)) return showToast("Invalid song name", true);
-            if(!/[aeiouy]/i.test(song)) return showToast("Please enter a valid song name", true);
-
-            const lowerSong = song.toLowerCase();
-            const inInternalDB = window.fullDatabase.some(dbSong => dbSong.toLowerCase().includes(lowerSong));
-            if (inInternalDB) {
-                 await processRequest(song, artist, 'new');
-                 return;
-            }
-
-            const submitBtn = document.getElementById('btn-submit-new');
-            const originalBtnText = submitBtn.innerHTML;
-            submitBtn.innerHTML = 'Verifying...';
-            submitBtn.disabled = true;
-
-            try {
-                const searchTerm = artist ? `${song} ${artist}` : song;
-                const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=song&limit=5`);
-                const data = await res.json();
-                if (data.resultCount > 0) {
-                     const escapedInput = window.sanitizeId(lowerSong).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, ' ');
-                     const validMatch = data.results.find(result => {
-                         const track = result.trackName.toLowerCase();
-                         const regex = new RegExp(`(^|\\s|\\(|\\)|-)${escapedInput}($|\\s|\\(|\\)|-)`, 'i');
-                         return track.includes(lowerSong) && regex.test(track);
-                     });
-                     if(validMatch) {
-                         const finalArtist = artist || validMatch.artistName;
-                         await processRequest(song, finalArtist, 'new');
-                     } else {
-                         showToast("Could not verify this song exists. Please check spelling.", true);
-                     }
-                } else {
-                     showToast("Could not verify this song exists. Please check spelling.", true);
-                }
-            } catch (e) {
-                console.error("Verification failed", e);
-                showToast("Verification service unavailable. Try again.", true);
-            } finally {
-                submitBtn.innerHTML = originalBtnText;
-                submitBtn.disabled = false;
+        // --- 7. PIN MODAL ---
+        window.managerMode = false;
+        window.toggleManagerMode = () => {
+            if(window.managerMode) {
+                window.managerMode = false;
+                showToast("Manager Mode Locked");
+                renderBank();
+            } else {
+                document.getElementById('pin-modal').classList.remove('hidden');
+                document.getElementById('manager-pin-input').value = '';
+                document.getElementById('manager-pin-input').focus();
             }
         };
-        
-        async function processRequest(song, artist, type) {
-             const success = await window.addAudienceRequest(song, artist, type);
-             if(success) {
-                document.getElementById('audience-new-song').value = '';
-                document.getElementById('audience-artist').value = '';
-                document.getElementById('request-success').classList.remove('hidden');
-                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
+
+        window.checkManagerPin = () => {
+            const input = document.getElementById('manager-pin-input');
+            if(input.value === "1234") {
+                window.managerMode = true;
+                showToast("Manager Mode Unlocked! 🔓");
+                document.getElementById('pin-modal').classList.add('hidden');
+                renderBank();
+            } else {
+                showToast("Incorrect PIN", true);
+                input.value = '';
             }
-        }
-        
-        window.copyAudienceLink = () => {
-            const audienceUrl = window.location.href + (window.location.href.includes('?') ? '&' : '?') + "mode=audience";
-            const tempInput = document.createElement("input");
-            tempInput.value = audienceUrl;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            document.execCommand("copy");
-            document.body.removeChild(tempInput);
-            showToast("🔗 Link copied to clipboard!");
+        };
+
+        window.closePinModal = () => {
+            document.getElementById('pin-modal').classList.add('hidden');
         };
 
     </script>
@@ -1251,7 +1216,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 2.9.9</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0</h1>
                 <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
                 <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
