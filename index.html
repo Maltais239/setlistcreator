@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setlist Creator 3.0.1</title>
+    <title>Setlist Creator 3.0.2</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -11,6 +11,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Mammoth.js for DOCX support -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
 
     <style>
         ::-webkit-scrollbar { width: 8px; }
@@ -983,19 +985,33 @@
                 }
 
                 if (!lyricsContent) {
+                    const cleanTitle = title.split('(')[0].trim();
+                    const encodedTitle = encodeURIComponent(cleanTitle);
+                    
+                    // Try TXT first
                     try {
-                        const cleanTitle = title.split('(')[0].trim();
-                        let ghUrl = LYRICS_GITHUB_BASE_URL + encodeURIComponent(cleanTitle) + ".txt";
-                        let res = await fetch(ghUrl);
-                        if (!res.ok) {
-                            if (cleanTitle !== title) {
-                                ghUrl = LYRICS_GITHUB_BASE_URL + encodeURIComponent(title) + ".txt";
-                                res = await fetch(ghUrl);
-                            }
+                        let res = await fetch(LYRICS_GITHUB_BASE_URL + encodedTitle + ".txt");
+                        if (!res.ok && cleanTitle !== title) {
+                             res = await fetch(LYRICS_GITHUB_BASE_URL + encodeURIComponent(title) + ".txt");
                         }
+                        
                         if (res.ok) {
                             lyricsContent = await res.text();
                             source = 'github';
+                        } else {
+                            // Try DOCX as fallback
+                            console.log("TXT not found, checking for DOCX...");
+                            let docRes = await fetch(LYRICS_GITHUB_BASE_URL + encodedTitle + ".docx");
+                            if (!docRes.ok && cleanTitle !== title) {
+                                docRes = await fetch(LYRICS_GITHUB_BASE_URL + encodeURIComponent(title) + ".docx");
+                            }
+
+                            if (docRes.ok) {
+                                const arrayBuffer = await docRes.arrayBuffer();
+                                const result = await mammoth.extractRawText({arrayBuffer: arrayBuffer}); 
+                                lyricsContent = result.value;
+                                source = 'github-docx';
+                            }
                         }
                     } catch (e) { console.error("GitHub fetch error:", e); }
                 }
@@ -1005,6 +1021,8 @@
                     document.getElementById('lyrics-textarea').value = lyricsContent;
                     if(source === 'firebase') {
                         sourceBadge.innerHTML = '<span class="text-[10px] bg-indigo-900 text-indigo-300 px-2 py-1 rounded border border-indigo-700">Cloud Saved</span>';
+                    } else if (source === 'github-docx') {
+                        sourceBadge.innerHTML = '<span class="text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded border border-blue-700">GitHub (DOCX)</span>';
                     } else {
                         sourceBadge.innerHTML = '<span class="text-[10px] bg-gray-700 text-gray-300 px-2 py-1 rounded border border-gray-600">GitHub</span>';
                     }
@@ -1266,7 +1284,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.1</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.2</h1>
                 <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
                 <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
