@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setlist Creator 3.0.2</title>
+    <title>Setlist Creator 3.0.4</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -990,8 +990,10 @@
                     
                     // Try TXT first
                     try {
+                        console.log(`Fetching TXT: ${LYRICS_GITHUB_BASE_URL + encodedTitle}.txt`);
                         let res = await fetch(LYRICS_GITHUB_BASE_URL + encodedTitle + ".txt");
                         if (!res.ok && cleanTitle !== title) {
+                             console.log(`Fetching TXT (Full): ${LYRICS_GITHUB_BASE_URL + encodeURIComponent(title)}.txt`);
                              res = await fetch(LYRICS_GITHUB_BASE_URL + encodeURIComponent(title) + ".txt");
                         }
                         
@@ -1001,15 +1003,17 @@
                         } else {
                             // Try DOCX as fallback
                             console.log("TXT not found, checking for DOCX...");
+                            console.log(`Fetching DOCX: ${LYRICS_GITHUB_BASE_URL + encodedTitle}.docx`);
                             let docRes = await fetch(LYRICS_GITHUB_BASE_URL + encodedTitle + ".docx");
                             if (!docRes.ok && cleanTitle !== title) {
+                                console.log(`Fetching DOCX (Full): ${LYRICS_GITHUB_BASE_URL + encodeURIComponent(title)}.docx`);
                                 docRes = await fetch(LYRICS_GITHUB_BASE_URL + encodeURIComponent(title) + ".docx");
                             }
 
                             if (docRes.ok) {
                                 const arrayBuffer = await docRes.arrayBuffer();
                                 const result = await mammoth.extractRawText({arrayBuffer: arrayBuffer}); 
-                                lyricsContent = result.value;
+                                lyricsContent = result.value.trim();
                                 source = 'github-docx';
                             }
                         }
@@ -1027,7 +1031,7 @@
                         sourceBadge.innerHTML = '<span class="text-[10px] bg-gray-700 text-gray-300 px-2 py-1 rounded border border-gray-600">GitHub</span>';
                     }
                 } else {
-                    contentArea.innerHTML = `<div class="text-gray-500 italic text-center mt-10"><p class="mb-2">No lyrics found for "${title}"</p><button onclick="toggleEditMode()" class="mt-4 text-indigo-400 hover:text-white underline">Write Lyrics Now</button></div>`;
+                    contentArea.innerHTML = `<div class="text-gray-500 italic text-center mt-10"><p class="mb-2">No lyrics found for "${title}"</p><p class="text-xs text-gray-600 mb-4">(Checked: .txt and .docx)</p><button onclick="toggleEditMode()" class="mt-4 text-indigo-400 hover:text-white underline">Write Lyrics Now</button></div>`;
                     document.getElementById('lyrics-textarea').value = '';
                 }
                 window.currentLyricsSong = { title, artist, id: window.sanitizeId(title) };
@@ -1112,7 +1116,7 @@
         };
         
         // --- REQUESTS ---
-        window.addAudienceRequest = async (song, artist, source = 'new') => {
+        window.addAudienceRequest = async (song, artist, source = 'new', requesterName = '') => {
             if (!db) return false;
             const normalizedSong = song.trim(); 
             const deviceID = localStorage.getItem('deviceID') || crypto.randomUUID();
@@ -1138,6 +1142,7 @@
                     await addDoc(requestsRef, {
                         song: normalizedSong,
                         artist: (artist || '').trim(),
+                        requester: (requesterName || 'Anonymous').trim(),
                         votes: 1,
                         timestamp: Date.now(),
                         source: source,
@@ -1151,24 +1156,42 @@
         };
         
         window.submitNewRequest = () => {
+            const nameInput = document.getElementById('audience-name');
             const songInput = document.getElementById('audience-new-song');
             const artistInput = document.getElementById('audience-artist');
+            
+            const name = nameInput.value.trim();
             const song = songInput.value.trim();
             const artist = artistInput.value.trim();
 
             if (!song) return showToast("Please enter a song title.", true);
             
-            // --- STRICT VALIDATION ---
-            // 1. Minimum Length 3
-            if (song.length < 3) return showToast("Song title is too short.", true);
+            // --- STRICT VALIDATION (Drunk Proofing) ---
             
-            // 2. Context Rule: If title is short (like 'Smee'), Artist is REQUIRED.
+            // 1. Minimum Length 3, Max 50
+            if (song.length < 3) return showToast("Song title is too short.", true);
+            if (song.length > 50) return showToast("Song title is too long.", true);
+            
+            // 2. Gibberish Detector (3+ repeating chars like 'yessss')
+            if (/(.)\1\1/.test(song)) return showToast("Please check your spelling.", true);
+
+            // 3. Blocklist (Spam/Jokes)
+            const blocked = ["free bird", "freebird", "wonderwall", "play something good", "anything", "whatever", "test", "hello"];
+            if (blocked.includes(song.toLowerCase())) return showToast("Request denied (Spam filter).", true);
+
+            // 4. Profanity Filter (Basic)
+            const badWords = ["fuck", "shit", "bitch", "asshole", "cunt"]; 
+            const combinedText = (song + " " + artist + " " + name).toLowerCase();
+            if (badWords.some(w => combinedText.includes(w))) return showToast("Please keep it clean.", true);
+            
+            // 5. Context Rule: If title is short (like 'Smee'), Artist is REQUIRED.
             if (song.length < 5 && !artist) {
                 return showToast("For short titles, please add the Artist name.", true);
             }
 
-            window.addAudienceRequest(song, artist, 'custom').then(success => {
+            window.addAudienceRequest(song, artist, 'custom', name).then(success => {
                 if (success) {
+                    // Don't clear name so they don't have to retype it
                     songInput.value = '';
                     artistInput.value = '';
                     songInput.blur();
@@ -1188,7 +1211,7 @@
              list.innerHTML = source.map(s => {
                  const safe = s.replace(/'/g, "\\'");
                  return `
-                    <div onclick="window.addAudienceRequest('${safe}', '', 'bank')" class="p-3 border-b border-white/10 text-gray-300 hover:bg-white/10 active:bg-indigo-600 active:text-white transition cursor-pointer flex justify-between items-center group">
+                    <div onclick="window.addAudienceRequest('${safe}', '', 'bank', document.getElementById('audience-name').value)" class="p-3 border-b border-white/10 text-gray-300 hover:bg-white/10 active:bg-indigo-600 active:text-white transition cursor-pointer flex justify-between items-center group">
                         <span>${s}</span>
                         <span class="opacity-0 group-hover:opacity-100 text-indigo-400 text-xs font-bold">REQUEST +</span>
                     </div>
@@ -1232,9 +1255,11 @@
                 list.innerHTML = requests.map(r => {
                     const originTag = r.source === 'bank' ? `<span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full mr-2">Bank</span>` : `<span class="text-xs bg-red-500/20 text-red-300 px-2 py-1 rounded-full mr-2">New</span>`;
                     const voteBadge = r.votes > 1 ? `<span class="bg-green-600 text-white text-xs px-2 py-1 rounded-full font-bold ml-2">${r.votes} Votes</span>` : '';
+                    const requesterDisplay = r.requester && r.requester !== 'Anonymous' ? `<span class="text-xs text-indigo-300 ml-2 font-normal">(${r.requester})</span>` : '';
+                    
                     return `
                         <div class="bg-gray-700/50 p-3 rounded-lg flex justify-between items-start border border-gray-600 animate-fade-in">
-                            <div><div class="font-bold text-white flex items-center">${r.song}${voteBadge}</div><div class="mt-2 text-xs text-gray-500 flex items-center">${originTag} <span class="text-pink-300 ml-2">${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div></div>
+                            <div><div class="font-bold text-white flex items-center flex-wrap">${r.song} ${requesterDisplay} ${voteBadge}</div><div class="mt-2 text-xs text-gray-500 flex items-center">${originTag} <span class="text-pink-300 ml-2">${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div></div>
                             <div class="flex flex-col gap-1"><button onclick="window.saveRequestToSet('${r.song.replace(/'/g, "\\'")}', '', '${r.id}')" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded">Save</button><button onclick="window.deleteRequest('${r.id}')" class="text-xs bg-gray-600 hover:bg-red-500 text-white px-2 py-1 rounded">Clear</button></div>
                         </div>`;
                 }).join('');
@@ -1284,7 +1309,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.2</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.4</h1>
                 <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
                 <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
@@ -1446,6 +1471,7 @@
             <div class="glass p-5 rounded-2xl border border-white/10 shadow-xl flex-shrink-0">
                 <h3 class="font-bold text-white mb-3 text-sm uppercase tracking-wide opacity-80">Can't find it? Request something new:</h3>
                 <div class="space-y-3">
+                    <input type="text" id="audience-name" placeholder="Your Name (Optional)" class="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-gray-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-all">
                     <input type="text" id="audience-new-song" placeholder="Song Title" class="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-gray-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-all">
                     <input type="text" id="audience-artist" placeholder="Artist (Optional)" class="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-gray-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none transition-all">
                     <button id="btn-submit-new" onclick="submitNewRequest()" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3.5 rounded-xl shadow-lg transform active:scale-95 transition-all">Send Request</button>
