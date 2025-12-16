@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setlist Creator 3.0</title>
+    <title>Setlist Creator 3.0.1</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -21,24 +21,13 @@
         /* --- DRAG & DROP STYLES --- */
         .drag-handle { 
             cursor: grab; 
-            padding: 15px 20px; /* Larger touch target for mobile */
-            font-size: 1.6rem;
-            touch-action: none; /* CRITICAL: Prevents scrolling when touching handle */
-            color: #9ca3af;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 8px;
+            padding: 12px 18px; /* Touch target */
+            font-size: 1.5rem;
+            touch-action: none; /* CRITICAL for mobile */
+            color: #6b7280;
+            transition: color 0.2s;
         }
-        
-        /* Visual feedback when handle is pressed */
-        .drag-handle:active { 
-            cursor: grabbing; 
-            color: #818cf8; 
-            background-color: rgba(255,255,255,0.05);
-            transform: scale(1.15); 
-        }
+        .drag-handle:active { cursor: grabbing; color: #818cf8; }
         
         /* The item currently being dragged (floating) */
         .sortable-drag { 
@@ -215,6 +204,7 @@
         const singerMap = { "Ahead By A Century": "Jeff", "Blow At High Dough": "Jeff", "All Apologies": "Jeff", "ALL APOLOGIES": "Jeff", "I'm On Fire": "D/M", "Dreams": "Melissa", "Jolene": "Melissa", "Heart of Glass": "Melissa", "Rhiannon": "Melissa", "Blister In The Sun": "Jeff", "Can't Let Go": "Melissa", "Cant Let Go": "Melissa", "I Shot To Sheriff": "Jeff", "You Wreck Me": "Jeff", "Norwegian Wood": "Jeff", "Johnny B. Goode": "Jeff", "Johnny B Goode": "Jeff", "Brown Eyed Girl": "Jeff", "Cadillac Ranch": "Jeff", "Flowers": "Melissa", "Valerie": "Melissa", "Layla": "Jeff", "Blindman River": "Melissa", "Zombie": "Melissa" };
 
         function getSinger(titleStr) {
+            if (!titleStr) return "Darren";
             const cleanTitle = titleStr.toLowerCase();
             for (const [key, value] of Object.entries(singerMap)) {
                 if (cleanTitle.includes(key.toLowerCase())) { return value; }
@@ -410,9 +400,11 @@
             for(let i=0; i<4; i++) {
                 const list = document.getElementById(`list-set-${i}`);
                 if(!list) continue;
-                const items = Array.from(list.children).map(li => {
-                    return { title: li.getAttribute('data-title'), durationStr: "0:00" };
-                });
+                const items = Array.from(list.children)
+                    .filter(li => li.hasAttribute('data-title'))
+                    .map(li => {
+                        return { title: li.getAttribute('data-title'), durationStr: "0:00" };
+                    });
                 window.setCollections[currentTab][i] = items;
             }
             if(currentTab === 'custom') {
@@ -470,6 +462,7 @@
                     listEl.innerHTML = `<li class="p-4 text-gray-500 text-center text-sm italic">Empty Set</li>`;
                 } else if (setSongs) {
                     setSongs.forEach((song, idx) => {
+                        if (!song || !song.title) return;
                         const singer = getSinger(song.title);
                         const badgeHTML = getSingerBadgeHTML(singer);
                         let cleanTitle = song.title.split('(')[0].trim();
@@ -506,14 +499,12 @@
                 if(el) sortables.push(new Sortable(el, { 
                     group: 'shared', 
                     animation: 200, 
-                    delay: 100, // Reduced delay for snappier mobile feel (was 150)
+                    delay: 150, 
                     delayOnTouchOnly: true,
                     handle: '.drag-handle', 
                     ghostClass: 'sortable-ghost', 
                     chosenClass: 'sortable-chosen',
                     dragClass: 'sortable-drag',
-                    forceFallback: false, // Default is better for mobile touch events
-                    fallbackTolerance: 3, // Allow a few pixels of movement before cancelling drag (prevents jitter)
                     onChoose: function (evt) {
                         if (navigator.vibrate) navigator.vibrate(50);
                     },
@@ -1140,6 +1131,52 @@
                 return true;
             } catch (e) { console.error(e); showToast("Error sending request.", true); return false; }
         };
+        
+        window.submitNewRequest = () => {
+            const songInput = document.getElementById('audience-new-song');
+            const artistInput = document.getElementById('audience-artist');
+            const song = songInput.value.trim();
+            const artist = artistInput.value.trim();
+
+            if (!song) return showToast("Please enter a song title.", true);
+            
+            // --- STRICT VALIDATION ---
+            // 1. Minimum Length 3
+            if (song.length < 3) return showToast("Song title is too short.", true);
+            
+            // 2. Context Rule: If title is short (like 'Smee'), Artist is REQUIRED.
+            if (song.length < 5 && !artist) {
+                return showToast("For short titles, please add the Artist name.", true);
+            }
+
+            window.addAudienceRequest(song, artist, 'custom').then(success => {
+                if (success) {
+                    songInput.value = '';
+                    artistInput.value = '';
+                    songInput.blur();
+                    artistInput.blur();
+                    
+                    const successMsg = document.getElementById('request-success');
+                    successMsg.classList.remove('hidden');
+                    setTimeout(() => successMsg.classList.add('hidden'), 3000);
+                }
+            });
+        };
+        
+        window.renderAudienceBankFallback = () => {
+             const list = document.getElementById('audience-bank-list');
+             if(!list) return;
+             const source = window.activeRotationList || [];
+             list.innerHTML = source.map(s => {
+                 const safe = s.replace(/'/g, "\\'");
+                 return `
+                    <div onclick="window.addAudienceRequest('${safe}', '', 'bank')" class="p-3 border-b border-white/10 text-gray-300 hover:bg-white/10 active:bg-indigo-600 active:text-white transition cursor-pointer flex justify-between items-center group">
+                        <span>${s}</span>
+                        <span class="opacity-0 group-hover:opacity-100 text-indigo-400 text-xs font-bold">REQUEST +</span>
+                    </div>
+                 `;
+             }).join('');
+        };
 
         async function deleteRequest(id) {
             if (!db) return;
@@ -1218,105 +1255,6 @@
         window.closePinModal = () => {
             document.getElementById('pin-modal').classList.add('hidden');
         };
-        
-        // Audience Bank
-        window.renderAudienceBankFallback = () => {
-             const list = document.getElementById('audience-bank-list');
-             if(!list) return;
-             // masterBank is now dynamically fetched
-             const songs = window.masterBank || window.activeRotationList || []; 
-             if(songs.length === 0) {
-                 list.innerHTML = '<div class="text-gray-400 text-center p-4">Loading song list...</div>';
-                 return;
-             }
-             list.innerHTML = songs.map(s => `
-                <button onclick="window.submitBankRequest('${s.replace(/'/g, "\\'")}')" class="w-full text-left bg-transparent hover:bg-white/10 p-3 rounded-lg text-sm text-gray-200 border-b border-white/5 flex justify-between items-center group transition-colors">
-                    <span>${s}</span>
-                    <span class="text-xs text-pink-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity">REQUEST +</span>
-                </button>
-            `).join('');
-        };
-        
-        window.submitBankRequest = async (songName) => {
-             const success = await window.addAudienceRequest(songName, '', 'bank');
-             if(success) {
-                  document.getElementById('request-success').classList.remove('hidden');
-                  setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-             }
-        }
-        
-        window.submitNewRequest = async () => {
-            const songInput = document.getElementById('audience-new-song');
-            const artistInput = document.getElementById('audience-artist');
-            let song = songInput.value.trim();
-            const artist = artistInput.value.trim();
-            
-            if(!song) return showToast("Please enter a song name", true);
-            if(song.length < 3) return showToast("Song name too short", true);
-            if(/(.)\1{2,}/.test(song)) return showToast("Invalid song name", true);
-            if(!/[aeiouy]/i.test(song)) return showToast("Please enter a valid song name", true);
-
-            const lowerSong = song.toLowerCase();
-            const inInternalDB = window.fullDatabase.some(dbSong => dbSong.toLowerCase().includes(lowerSong));
-            if (inInternalDB) {
-                 await processRequest(song, artist, 'new');
-                 return;
-            }
-
-            const submitBtn = document.getElementById('btn-submit-new');
-            const originalBtnText = submitBtn.innerHTML;
-            submitBtn.innerHTML = 'Verifying...';
-            submitBtn.disabled = true;
-
-            try {
-                const searchTerm = artist ? `${song} ${artist}` : song;
-                const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=song&limit=5`);
-                const data = await res.json();
-                if (data.resultCount > 0) {
-                     const escapedInput = window.sanitizeId(lowerSong).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, ' ');
-                     const validMatch = data.results.find(result => {
-                         const track = result.trackName.toLowerCase();
-                         const regex = new RegExp(`(^|\\s|\\(|\\)|-)${escapedInput}($|\\s|\\(|\\)|-)`, 'i');
-                         return track.includes(lowerSong) && regex.test(track);
-                     });
-                     if(validMatch) {
-                         const finalArtist = artist || validMatch.artistName;
-                         await processRequest(song, finalArtist, 'new');
-                     } else {
-                         showToast("Could not verify this song exists. Please check spelling.", true);
-                     }
-                } else {
-                     showToast("Could not verify this song exists. Please check spelling.", true);
-                }
-            } catch (e) {
-                console.error("Verification failed", e);
-                showToast("Verification service unavailable. Try again.", true);
-            } finally {
-                submitBtn.innerHTML = originalBtnText;
-                submitBtn.disabled = false;
-            }
-        };
-        
-        async function processRequest(song, artist, type) {
-             const success = await window.addAudienceRequest(song, artist, type);
-             if(success) {
-                document.getElementById('audience-new-song').value = '';
-                document.getElementById('audience-artist').value = '';
-                document.getElementById('request-success').classList.remove('hidden');
-                setTimeout(() => document.getElementById('request-success').classList.add('hidden'), 3000);
-            }
-        }
-        
-        window.copyAudienceLink = () => {
-            const audienceUrl = window.location.href + (window.location.href.includes('?') ? '&' : '?') + "mode=audience";
-            const tempInput = document.createElement("input");
-            tempInput.value = audienceUrl;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            document.execCommand("copy");
-            document.body.removeChild(tempInput);
-            showToast("🔗 Link copied to clipboard!");
-        };
 
     </script>
 </head>
@@ -1328,7 +1266,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.1</h1>
                 <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
                 <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
