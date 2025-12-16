@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setlist Creator 3.0.11</title>
+    <title>Setlist Creator 3.0.12</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -1257,7 +1257,7 @@
             } catch (e) { console.error(e); showToast("Error sending request.", true); return false; }
         };
         
-        window.submitNewRequest = () => {
+        window.submitNewRequest = async () => {
             const nameInput = document.getElementById('audience-name');
             const songInput = document.getElementById('audience-new-song');
             const artistInput = document.getElementById('audience-artist');
@@ -1309,6 +1309,47 @@
             // 7. Context Rule
             if (song.length < 4 && !artist) {
                 return showToast("Short title? Please add the Artist.", true);
+            }
+
+            // --- ITUNES VERIFICATION (Added in 3.0.12) ---
+            const submitBtn = document.getElementById('btn-submit-new');
+            const originalText = submitBtn ? submitBtn.innerText : "Send Request";
+            
+            if(submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerText = "Verifying...";
+            }
+
+            try {
+                // Quick check against iTunes Database
+                const term = encodeURIComponent(`${song} ${artist}`);
+                
+                // Use a timeout controller so we don't hang if iTunes is slow
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+                const res = await fetch(`https://itunes.apple.com/search?term=${term}&entity=song&limit=1`, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if(res.ok) {
+                    const data = await res.json();
+                    if(data.resultCount === 0) {
+                        if(submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.innerText = originalText;
+                        }
+                        return showToast("🤔 iTunes doesn't know this song. Check spelling!", true);
+                    }
+                }
+            } catch(e) {
+                console.warn("iTunes verification skipped (Offline/Timeout):", e);
+                // Fail safe: If API is down or user is offline, we ALLOW the request 
+                // so we don't block legitimate users during technical issues.
+            }
+            
+            if(submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerText = originalText;
             }
 
             window.addAudienceRequest(song, artist, 'custom', name).then(success => {
@@ -1430,7 +1471,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.11</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.12</h1>
                 <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
                 <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
