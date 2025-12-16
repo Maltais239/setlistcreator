@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setlist Creator 3.0.8</title>
+    <title>Setlist Creator 3.0.10</title>
     
     <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -723,6 +723,7 @@
             if(!popup.classList.contains('hidden')) {
                 const container = document.getElementById('mini-qrcode-canvas');
                 container.innerHTML = '';
+                // CHANGED: Use base URL for bandmates, not audience mode
                 const bandUrl = window.location.href.split('?')[0]; 
                 new QRCode(container, {
                     text: bandUrl,
@@ -1267,32 +1268,51 @@
 
             if (!song) return showToast("Please enter a song title.", true);
             
-            // --- STRICT VALIDATION (Drunk Proofing) ---
+            // --- STRICT VALIDATION (Drunk Guardrails 2.0) ---
             
-            // 1. Minimum Length 3, Max 50
-            if (song.length < 3) return showToast("Song title is too short.", true);
-            if (song.length > 50) return showToast("Song title is too long.", true);
+            // 1. Length & Basic Checks
+            if (song.length < 2) return showToast("Song title is too short.", true);
+            if (song.length > 60) return showToast("Title too long. Are you writing a novel?", true);
             
-            // 2. Gibberish Detector (3+ repeating chars like 'yessss')
-            if (/(.)\1\1/.test(song)) return showToast("Please check your spelling.", true);
-
-            // 3. Blocklist (Spam/Jokes)
-            const blocked = ["free bird", "freebird", "wonderwall", "play something good", "anything", "whatever", "test", "hello"];
-            if (blocked.includes(song.toLowerCase())) return showToast("Request denied (Spam filter).", true);
-
-            // 4. Profanity Filter (Basic)
-            const badWords = ["fuck", "shit", "bitch", "asshole", "cunt"]; 
+            const lowerSong = song.toLowerCase();
             const combinedText = (song + " " + artist + " " + name).toLowerCase();
-            if (badWords.some(w => combinedText.includes(w))) return showToast("Please keep it clean.", true);
+
+            // 2. Gibberish / Repetition
+            if (/(.)\1\1/.test(combinedText)) return showToast("You're stuttering. Check spelling.", true); // 3+ same chars
+            if (/\b(\w+)\s+\1\b/.test(combinedText)) return showToast("No need to repeat words.", true); // Repeated words
+
+            // 3. Excessive Punctuation (e.g., "!!!!")
+            if (/[?!.]{3,}/.test(combinedText)) return showToast("Too much excitement (punctuation).", true);
+
+            // 4. The "No-Go" List (Specific Songs & Phrases)
+            const blockedPhrases = [
+                "free bird", "freebird", "wonderwall", "stairway to heaven", 
+                "don't stop believin", "sweet caroline", "piano man", 
+                "bohemian rhapsody", "hotel california",
+                "play something good", "play something upbeat", "anything", "whatever",
+                "more cowbell", "play some skynyrd"
+            ];
             
-            // 5. Context Rule: If title is short (like 'Smee'), Artist is REQUIRED.
-            if (song.length < 5 && !artist) {
-                return showToast("For short titles, please add the Artist name.", true);
+            if (blockedPhrases.some(b => lowerSong.includes(b))) {
+                return showToast("🚫 Request Denied: That song is on the 'No' list.", true);
+            }
+            
+            // 5. Strict Profanity Filter
+            const badWords = ["fuck", "shit", "bitch", "asshole", "cunt", "dick", "pussy", "cock", "whore", "slut", "nigger", "faggot"]; 
+            if (badWords.some(w => combinedText.includes(w))) return showToast("Let's keep it clean, folks.", true);
+            
+            // 6. Keysmash Detector (No vowels in a long string)
+            if (song.length > 6 && !/[aeiouy]/i.test(song)) {
+                return showToast("That doesn't look like a real song.", true);
+            }
+
+            // 7. Context Rule
+            if (song.length < 4 && !artist) {
+                return showToast("Short title? Please add the Artist.", true);
             }
 
             window.addAudienceRequest(song, artist, 'custom', name).then(success => {
                 if (success) {
-                    // Don't clear name so they don't have to retype it
                     songInput.value = '';
                     artistInput.value = '';
                     songInput.blur();
@@ -1410,7 +1430,7 @@
         <!-- Header -->
         <header class="mb-6 text-center flex flex-col md:flex-row justify-between items-center md:items-end border-b border-gray-700 pb-4 gap-4">
             <div class="text-left w-full md:w-auto flex flex-col items-center md:items-start">
-                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.8</h1>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">Setlist Creator 3.0.10</h1>
                 <h2 class="text-sm font-bold text-indigo-300 opacity-75">Active Rotation & Database</h2>
                 <div class="flex flex-col md:flex-row gap-4 mt-2 items-center md:items-start">
                     <p class="text-gray-400 text-sm mt-1">4 Sets • Active Rotation • Full DB</p>
@@ -1564,8 +1584,9 @@
             </header>
 
             <!-- Success Message -->
-            <div id="request-success" class="hidden fixed top-6 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-8 py-4 rounded-full shadow-2xl z-50 flex items-center gap-2 animate-bounce font-bold border-2 border-green-400">
-                <span>✅ Request Sent!</span>
+            <div id="request-success" class="hidden fixed top-6 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-2xl z-50 flex flex-col items-center text-center animate-bounce border-2 border-green-400">
+                <span class="text-lg font-bold">✅ Request Sent!</span>
+                <span class="text-sm text-green-100 font-medium">💰 Tips Appreciated! 💰</span>
             </div>
 
             <!-- Song Bank (Swapped to TOP) -->
